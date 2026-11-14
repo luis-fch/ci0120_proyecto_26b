@@ -1,0 +1,6 @@
+# Esperado: x1 = 0; x2 = 7; PC = 0x10.
+addi x1, x0, 3
+addi x1, x1, -1
+bne  x1, x0, -4
+addi x2, x0, 7
+ebreak

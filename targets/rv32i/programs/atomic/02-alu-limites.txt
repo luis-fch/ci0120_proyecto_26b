@@ -1,0 +1,14 @@
+# Esperado: x0=0, x1=ffffffff, x2=0, x3=1, x4=0, x5=0,
+# x6=ffffffff, x7=1, x8=80000000, x9=7fffffff, x10=1; PC=0x2c.
+addi  x1, x0, -1
+addi  x2, x1, 1
+slt   x3, x1, x0
+sltu  x4, x1, x0
+sltiu x5, x1, -1
+srai  x6, x1, 31
+srli  x7, x1, 31
+sll   x8, x7, x1
+sub   x9, x8, x7
+slli  x10, x7, 0
+addi  x0, x1, 7
+ebreak

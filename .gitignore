@@ -1,0 +1,9 @@
+*
+
+!.gitignore
+!/modules/
+!/modules/**
+!/targets/
+!/targets/**
+!README.md
+!CONVENTIONS.md

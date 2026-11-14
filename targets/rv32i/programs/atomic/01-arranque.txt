@@ -1,0 +1,3 @@
+# Esperado: x0 = 0; x1 = 5; PC = 0x04.
+addi x1, x0, 5
+ebreak

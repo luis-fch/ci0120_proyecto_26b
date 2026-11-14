@@ -1,0 +1,6 @@
+# Esperado: x5 = 0x04; x6 = 0x14; x9 = 1; PC = 0x08.
+jal  x5, 12
+addi x9, x0, 1
+ebreak
+addi x6, x5, 1
+jalr x6, 0(x6)
