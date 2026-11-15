@@ -11,6 +11,30 @@
 
 import simics
 
+I_FUNCT3 = {
+    "addi": 0,
+    "slti": 2,
+    "sltiu": 3,
+    "xori": 4,
+    "ori": 6,
+    "andi": 7,
+}
+
+SHIFT_FIELDS = {"slli": (1, 0), "srli": (5, 0), "srai": (5, 0x20)}
+
+R_FIELDS = {
+    "add": (0, 0),
+    "sub": (0, 0x20),
+    "sll": (1, 0),
+    "slt": (2, 0),
+    "sltu": (3, 0),
+    "xor": (4, 0),
+    "srl": (5, 0),
+    "sra": (5, 0x20),
+    "or": (6, 0),
+    "and": (7, 0),
+}
+
 
 def mem_write8(core, addr, value):
     """Write the byte value (0..255) to address addr of the core's memory."""
@@ -37,6 +61,12 @@ def register(text: str) -> int:
     return value
 
 
+def validate_range(value: int, low: int, high: int) -> None | ValueError:
+    """Validate that a value is within a specified range."""
+    if not (low <= value <= high):
+        raise ValueError(f"Value {value} out of range [{low}, {high}]")
+
+
 def encode_i(opcode: int, funct3: int, rd: int, rs1: int, immediate: int) -> int:
     """Encode an I-type instruction."""
     # RV32I I-type layout: imm[31:20], rs1[19:15], funct3[14:12],
@@ -52,17 +82,39 @@ def encode(line: str) -> int:
     operands = parts[1].split(",") if len(parts) == 2 else []
     operands = [operand.strip() for operand in operands]
 
-    if op == "ebreak":
+    if op == "ebreak" and not operands:
         return 0x00100073
-    if op == "addi":
+
+    # Handle I-type instructions
+    if op in ("lui", "auipc") and len(operands) == 2:
         rd = register(operands[0])
-        rs1 = register(operands[1])
-        imm = number(operands[2])
-        if not -2048 <= imm <= 2047:
-            raise ValueError(f"Immediate value out of range: {imm}")
-        return encode_i(0x13, 0x0, rd, rs1, imm)
-    else:
-        raise ValueError(f"Unsupported instruction: {op}")
+        upper = number(operands[1])
+        validate_range(upper, -524288, 1048575)
+        opcode = 0x37 if op == "lui" else 0x17
+        return (upper % 2**20) * 4096 + rd * 128 + opcode
+
+    if len(operands) == 3:
+        if op in I_FUNCT3:
+            rd = register(operands[0])
+            rs1 = register(operands[1])
+            immediate = number(operands[2])
+            validate_range(immediate, -2048, 2047)
+            return encode_i(0x13, I_FUNCT3[op], rd, rs1, immediate % 4096)
+        if op in SHIFT_FIELDS:
+            rd = register(operands[0])
+            rs1 = register(operands[1])
+            amount = number(operands[2])
+            validate_range(amount, 0, 31)
+            funct3, funct7 = SHIFT_FIELDS[op]
+            return encode_i(0x13, funct3, rd, rs1, funct7 * 32 + amount)
+        if op in R_FIELDS:
+            rd = register(operands[0])
+            rs1 = register(operands[1])
+            rs2 = register(operands[2])
+            funct3, funct7 = R_FIELDS[op]
+            return encode_i(0x33, funct3, rd, rs1, funct7 * 32 + rs2)
+
+    raise ValueError(f"Unsupported instruction or operands: {line}")
 
 
 def load_program(core, path, address) -> None:
