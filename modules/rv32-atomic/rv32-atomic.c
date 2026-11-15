@@ -327,12 +327,45 @@ void execute(rv32_t *cpu)
 }
 
 /* Text for Simics' disassemble CLI command (e.g. "disassemble 0x0 10")
-   for the instruction word instr. Return a string allocated with Simics'
+   for the instruction word. Return a string allocated with Simics'
    allocators, e.g. MM_STRDUP() or a strbuf as below; Simics frees it. */
 char *
-rv32_disassemble(uint32 instr)
+rv32_disassemble(uint32 word)
 {
   strbuf_t b = SB_INIT;
-  sb_addfmt(&b, ".word 0x%08x", instr);
+  instruction_t d = decode(word);
+  long long immediate = (long long)d.immediate; // Cast to long long for printing
+
+  if (d.name == NULL)
+  {
+    sb_addfmt(&b, ".word 0x%08x", word);
+    return sb_detach(&b);
+  }
+
+  switch (d.opcode)
+  {
+  case 0x73u: // ECALL/EBREAK
+    sb_addfmt(&b, "%s", d.name);
+    break;
+  case 0x37u: // LUI
+  case 0x17u: // AUIPC
+    sb_addfmt(&b, "%s x%u, 0x%x", d.name, d.rd, (unsigned)d.immediate);
+    break;
+  case 0x13u: // ALU immediate
+    sb_addfmt(&b, "%s x%u, x%u, %lld", d.name, d.rd, d.rs1, immediate);
+    break;
+  case 0x33u: // ALU registers
+    sb_addfmt(&b, "%s x%u, x%u, x%u", d.name, d.rd, d.rs1, d.rs2);
+    break;
+  case 0x63u: // Branch
+    sb_addfmt(&b, "%s x%u, x%u, %lld", d.name, d.rs1, d.rs2, immediate);
+    break;
+  case 0x6fu: // JAL
+    sb_addfmt(&b, "%s x%u, %lld", d.name, d.rd, immediate);
+    break;
+  case 0x67u: // JALR
+    sb_addfmt(&b, "%s x%u, %lld(x%u)", d.name, d.rd, immediate, d.rs1);
+    break;
+  }
   return sb_detach(&b);
 }
