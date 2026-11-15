@@ -39,6 +39,9 @@ def register(text: str) -> int:
 
 def encode_i(opcode: int, funct3: int, rd: int, rs1: int, immediate: int) -> int:
     """Encode an I-type instruction."""
+    # RV32I I-type layout: imm[31:20], rs1[19:15], funct3[14:12],
+    # rd[11:7], opcode[6:0]. Multiplying by 2**start places each
+    # field at its starting bit. The opcode already starts at bit 0.
     return immediate * 2**20 + rs1 * 2**15 + funct3 * 2**12 + rd * 2**7 + opcode
 
 
