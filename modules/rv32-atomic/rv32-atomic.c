@@ -139,6 +139,27 @@ static instruction_t decode(uint32 word)
     d.name = (d.opcode == 0x37u) ? "lui" : "auipc";
     d.immediate = bits(word, 12, 20);
   }
+
+  if (d.opcode == 0x63u)
+  {
+    const char *names[] =
+        {
+            "beq", "bne", NULL, NULL, "blt", "bge", "bltu", "bgeu"};
+    d.name = names[d.funct3];
+    uint32 offset = bits(word, 31, 1) * 4096u + bits(word, 7, 1) * 2048u + bits(word, 25, 6) * 32u + bits(word, 8, 4) * 2u;
+    d.immediate = signed_value(offset, 13);
+  }
+  else if (d.opcode == 0x6fu)
+  {
+    d.name = "jal";
+    uint32 offset = bits(word, 31, 1) * 1048576u + bits(word, 12, 8) * 4096u + bits(word, 20, 1) * 2048u + bits(word, 21, 10) * 2u;
+    d.immediate = signed_value(offset, 21);
+  }
+  else if (d.opcode == 0x67u && d.funct3 == 0)
+  {
+    d.name = "jalr";
+    d.immediate = signed_value(bits(word, 20, 12), 12);
+  }
   return d;
 }
 
@@ -158,6 +179,13 @@ static uint32 arithmetic_right(uint32 value, unsigned amount)
   return (uint32)result;
 }
 
+/**
+ * Perform an ALU operation based on the instruction's funct3 and funct7 fields.
+ * @param d The decoded instruction.
+ * @param a The value of the first register.
+ * @param b The value of the second register or immediate.
+ * @return The result of the ALU operation.
+ */
 static uint32 alu(instruction_t d, uint32 a, uint32 b)
 {
   unsigned amount = b % 32u; // Only the lower 5 bits are used for shift amounts
@@ -187,6 +215,34 @@ static uint32 alu(instruction_t d, uint32 a, uint32 b)
     return a & b; // AND
   default:
     return 0;
+  }
+}
+
+/**
+ * Determine if a branch should be taken based on the funct3 field and the values of two registers.
+ * @param funct3 The funct3 field of the instruction.
+ * @param a The value of the first register.
+ * @param b The value of the second register.
+ * @return True if the branch should be taken, false otherwise.
+ */
+static bool branch_taken(uint32 funct3, uint32 a, uint32 b)
+{
+  switch (funct3)
+  {
+  case 0:
+    return a == b; // BEQ
+  case 1:
+    return a != b; // BNE
+  case 4:
+    return signed_value(a, 32) < signed_value(b, 32); // BLT
+  case 5:
+    return signed_value(a, 32) >= signed_value(b, 32); // BGE
+  case 6:
+    return a < b; // BLTU
+  case 7:
+    return a >= b; // BGEU
+  default:
+    return false;
   }
 }
 
@@ -221,26 +277,51 @@ void execute(rv32_t *cpu)
   }
 
   uint32 next_pc = pc + 4u;
-  uint32 a = reg_read_x(cpu, d.rs1);
-  uint32 result;
+  uint32 result = 0;
+  bool write_rd = true;
 
-  if (d.opcode == 0x37u || d.opcode == 0x17u)
+  switch (d.opcode)
   {
+  case 0x37u: // LUI
     result = (uint32)d.immediate * 4096u;
-    if (d.opcode == 0x17u)
-      result += next_pc; // AUIPC adds the current PC
-  }
-  else
-  {
-    uint32 b = (uint32)d.immediate;
-    if (d.opcode == 0x33u)
+    break;
+  case 0x17u: // AUIPC
+    result = pc + (uint32)d.immediate * 4096u;
+    break;
+  case 0x13u: // ALU immediate
+    result = alu(d, reg_read_x(cpu, d.rs1), (uint32)d.immediate);
+    break;
+  case 0x33u: // ALU registers
+    result = alu(d, reg_read_x(cpu, d.rs1), reg_read_x(cpu, d.rs2));
+    break;
+  case 0x63u: // Branch
+    write_rd = false;
+    if (branch_taken(d.funct3, reg_read_x(cpu, d.rs1), reg_read_x(cpu, d.rs2)))
     {
-      b = reg_read_x(cpu, d.rs2);
+      next_pc = pc + (uint32)d.immediate;
     }
-    result = alu(d, a, b);
+    break;
+  case 0x6fu: // JAL
+    result = pc + 4u;
+    next_pc = pc + (uint32)d.immediate;
+    break;
+  case 0x67u: // JALR
+    result = pc + 4u;
+    next_pc = (reg_read_x(cpu, d.rs1) + (uint32)d.immediate);
+    next_pc -= next_pc % 2u; // Clear the least significant bit
+    break;
   }
 
-  reg_write_x(cpu, d.rd, result);
+  if (next_pc % 4u != 0)
+  {
+    rv32_halt(cpu, "unaligned instruction fetch");
+    return;
+  }
+
+  if (write_rd)
+  {
+    reg_write_x(cpu, d.rd, result);
+  }
   cpu->pc = next_pc;
   increment_step(cpu);
 }
