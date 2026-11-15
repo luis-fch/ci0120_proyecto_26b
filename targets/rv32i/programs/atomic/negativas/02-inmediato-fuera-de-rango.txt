@@ -1,0 +1,4 @@
+# El cargador debe rechazar 2048 en la línea 3. ADDI admite -2048..2047.
+addi x1, x0, 5
+addi x2, x0, 2048
+ebreak

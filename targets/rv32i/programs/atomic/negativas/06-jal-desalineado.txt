@@ -1,0 +1,6 @@
+# JAL debe detenerse antes de sobrescribir el enlace en x5.
+# Esperado: PC=0x04, x5=7, x2=0. Steps=1, cycles=2.
+addi x5, x0, 7
+jal  x5, 2
+addi x2, x0, 9
+ebreak

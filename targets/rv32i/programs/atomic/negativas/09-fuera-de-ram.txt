@@ -1,0 +1,6 @@
+# Carga con ram_size=0x10. JAL salta a 0x10, justo después de la RAM.
+# Esperado: PC=0x10, x1=5, x2=0. Steps=2, cycles=3.
+addi x1, x0, 5
+jal  x0, 12
+addi x2, x0, 9
+ebreak

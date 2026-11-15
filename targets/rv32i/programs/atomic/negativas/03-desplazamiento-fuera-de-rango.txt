@@ -1,0 +1,4 @@
+# El cargador debe rechazar 32 en la línea 3. SLLI admite 0..31.
+addi x1, x0, 5
+slli x2, x1, 32
+ebreak

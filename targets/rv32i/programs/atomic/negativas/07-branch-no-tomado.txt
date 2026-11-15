@@ -1,0 +1,6 @@
+# Control: el destino 0x06 está desalineado, pero BNE no se toma.
+# Esperado: termina en ebreak con PC=0x0c, x1=5, x2=9. Steps=4, cycles=4.
+addi x1, x0, 5
+bne  x1, x1, 2
+addi x2, x0, 9
+ebreak

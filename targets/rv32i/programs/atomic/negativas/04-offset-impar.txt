@@ -1,0 +1,4 @@
+# El cargador debe rechazar el offset impar en la línea 3.
+addi x1, x0, 5
+beq x1, x1, 3
+ebreak

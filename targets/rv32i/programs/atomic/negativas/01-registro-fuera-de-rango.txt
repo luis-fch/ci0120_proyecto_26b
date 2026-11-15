@@ -1,0 +1,4 @@
+# El cargador debe rechazar x32 en la línea 3.
+addi x1, x0, 5
+addi x32, x0, 1
+ebreak

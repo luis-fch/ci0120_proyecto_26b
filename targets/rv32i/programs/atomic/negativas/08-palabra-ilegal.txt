@@ -1,0 +1,5 @@
+# Sustituye la palabra en 0x04 desde la CLI antes de correr (ver README).
+# Esperado tras inyectar: PC=0x04, x1=5, x2=0. Steps=1, cycles=2.
+addi x1, x0, 5
+addi x2, x0, 9
+ebreak
