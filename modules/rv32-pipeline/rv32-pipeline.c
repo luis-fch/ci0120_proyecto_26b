@@ -11,22 +11,11 @@
   implied warranties, other than those that are expressly stated in the License.
 */
 
+#include <simics/base/log.h>
 #include <simics/util/strbuf.h>
 #include "cosim.h"
 #include "rv32-core.h"
 #include "rv32-helpers.h"
-
-#include <string.h>
-
-/**
- * A single RV32I instruction.
- */
-typedef struct
-{
-  uint32 opcode, rd, funct3, rs1, rs2, funct7;
-  int64 immediate;
-  const char *name;
-} instruction_t;
 
 /**
  * Extract a bit field from a word.
@@ -248,79 +237,36 @@ static bool branch_taken(uint32 funct3, uint32 a, uint32 b)
   }
 }
 
-/* ======================================================================
- *  Pipeline de cuatro etapas: IF -> ID -> EX -> WB
- *
- *  Cada llamada a execute() es UN ciclo. Las etapas leen el estado que los
- *  registros intermedios tenian al comenzar el ciclo (cpu->if_id, id_ex,
- *  ex_wb) y escriben el estado siguiente en variables locales; al final se
- *  aplican todos a la vez. Asi una instruccion avanza una sola etapa por
- *  ciclo.
- *
- *  Unica excepcion deliberada: WB escribe el banco de registros ANTES de que
- *  ID lo lea en el mismo ciclo (escribe y luego lee).
- *
- *  Riesgos de datos. Con cpu->forwarding_enabled == false (por defecto) se
- *  usa interlock: si la instruccion en ID lee un registro que la instruccion
- *  en EX va a escribir, se detiene en ID un ciclo: ID/EX recibe una burbuja
- *  y IF no avanza. Con forwarding_enabled == true, EX toma el operando
- *  directamente del registro EX/WB (el resultado de la instruccion
- *  inmediatamente anterior) y no hay stalls: todas las instrucciones del
- *  subconjunto producen su resultado en EX, asi que nunca hay que esperar.
- *  Si el productor esta a distancia 2 no hace falta ninguno de los dos,
- *  porque WB escribe el banco antes de que ID lea.
- *
- *  Riesgos de control (saltos resueltos en EX): si EX cambia el flujo se
- *  redirige fetch_pc y se descartan la instruccion que estaba en ID y la que
- *  IF iba a leer (2 ciclos de penalizacion).
- * ====================================================================== */
+/*
+ * The four stages (IF -> ID -> EX -> WB) read the old latches and replace
+ * them together at the end of the cycle. WB writes the register file before
+ * ID reads it, so only the instruction immediately ahead can cause a stall.
+ */
 
-/* Vacia el pipeline y reinicia la extraccion en el PC arquitectonico. */
-static void restart_pipeline(rv32_t *cpu)
-{
-  memset(&cpu->if_id, 0, sizeof cpu->if_id);
-  memset(&cpu->id_ex, 0, sizeof cpu->id_ex);
-  memset(&cpu->ex_wb, 0, sizeof cpu->ex_wb);
-  cpu->fetch_pc = cpu->pc;
-  cpu->fetch_stopped = false;
-}
-
-/* IF: lee la palabra en fetch_pc. Un fallo de lectura no detiene nada aqui:
-   viaja como FAULT_FETCH hasta WB (puede ser una instruccion descartada). */
+/* IF: carry fetch faults to WB so a redirect can discard them. */
 static void stage_if(rv32_t *cpu, if_id_t *out, uint32 *fetch_pc,
-                     bool *fetch_stopped)
+                    bool *fetch_stopped)
 {
-  memset(out, 0, sizeof *out);
-  if (*fetch_stopped)
-    return;
-
-  uint32 word;
   out->valid = true;
   out->pc = *fetch_pc;
-  if (fetch(cpu, *fetch_pc, &word))
-  {
-    out->word = word;
-    *fetch_pc += 4u;
-  }
-  else
-  {
+  if (*fetch_pc % 4u != 0)
+    out->fault = FAULT_MISALIGNED;
+  else if (!fetch(cpu, *fetch_pc, &out->word))
     out->fault = FAULT_FETCH;
-    *fetch_stopped = true; /* no tiene sentido seguir leyendo */
-  }
+  else
+    *fetch_pc += 4u;
+  *fetch_stopped = out->fault != FAULT_NONE;
 }
 
-/* True si "ex" va a escribir el registro fuente r (r = 0 nunca depende). */
-static bool raw_hazard(const id_ex_t *ex, uint32 r)
+/* True if the instruction in EX will write this source register. */
+static bool raw_hazard(const id_ex_t *ex, uint32 source)
 {
-  return ex->valid && ex->fault == FAULT_NONE && ex->writes_rd && r != 0 &&
-         ex->rd == r;
+  return ex->valid && ex->writes_rd && ex->instruction.rd == source;
 }
 
-/* ID: decodifica y lee los operandos del banco de registros. Devuelve true
-   si la instruccion debe esperar en ID (en ese caso out es una burbuja). */
+/* ID: decode and read operands. Return true to hold ID and send a bubble to EX. */
 static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
 {
-  memset(out, 0, sizeof *out);
   if (!in->valid)
     return false;
 
@@ -338,43 +284,32 @@ static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
     return false;
   }
 
-  out->opcode = d.opcode;
-  out->rd = d.rd;
-  out->funct3 = d.funct3;
-  out->rs1 = d.rs1;
-  out->rs2 = d.rs2;
-  out->funct7 = d.funct7;
-  out->imm = d.immediate;
-  out->name = d.name;
-
-  /* Que registros lee y cual escribe cada formato. */
+  out->instruction = d;
   switch (d.opcode)
   {
-  case 0x13u: // ALU inmediato
+  case 0x13u: // ALU immediate
   case 0x67u: // JALR
     out->uses_rs1 = true;
     break;
-  case 0x33u: // ALU registros
+  case 0x33u: // ALU registers
   case 0x63u: // Branch
     out->uses_rs1 = true;
     out->uses_rs2 = true;
     break;
-  default: // LUI, AUIPC, JAL, EBREAK: no leen registros
+  default: // LUI, AUIPC, JAL and EBREAK do not read registers
     break;
   }
   out->writes_rd = (d.opcode != 0x63u && d.opcode != 0x73u && d.rd != 0);
 
-  /* Interlock (solo sin forwarding): esperar si el operando lo esta
-     calculando la instruccion que esta en EX. Con forwarding, EX lo recibira
-     de EX/WB. */
+  /* Without forwarding, wait for EX to write any source register in WB. */
   if (!cpu->forwarding_enabled &&
       ((out->uses_rs1 && raw_hazard(&cpu->id_ex, d.rs1)) ||
        (out->uses_rs2 && raw_hazard(&cpu->id_ex, d.rs2))))
   {
     SIM_LOG_INFO(3, cpu->obj, 0,
-                 "stall: %08x %s espera un registro que EX esta calculando",
+                 "stall: %08x %s waits for an operand from EX",
                  in->pc, d.name);
-    memset(out, 0, sizeof *out); /* burbuja hacia EX */
+    *out = (id_ex_t){0};
     return true;
   }
 
@@ -385,11 +320,9 @@ static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
   return false;
 }
 
-/* EX: calcula resultado, destino y valida la alineacion. No escribe en el
-   banco de registros. */
+/* EX: compute the result and next PC. Register writes happen only in WB. */
 static void stage_ex(rv32_t *cpu, const id_ex_t *in, ex_wb_t *out)
 {
-  memset(out, 0, sizeof *out);
   if (!in->valid)
     return;
 
@@ -397,49 +330,35 @@ static void stage_ex(rv32_t *cpu, const id_ex_t *in, ex_wb_t *out)
   out->pc = in->pc;
   out->word = in->word;
   out->fault = in->fault;
-  out->rd = in->rd;
-  out->next_pc = in->pc + 4u;
   if (in->fault != FAULT_NONE)
     return;
 
-  if (in->opcode == 0x73u) // EBREAK: se resuelve al llegar a WB
+  const instruction_t d = in->instruction;
+  if (d.opcode == 0x73u) // EBREAK takes effect in WB
   {
     out->is_ebreak = true;
-    out->next_pc = in->pc;
     return;
   }
 
-  instruction_t d = {0};
-  d.opcode = in->opcode;
-  d.rd = in->rd;
-  d.funct3 = in->funct3;
-  d.rs1 = in->rs1;
-  d.rs2 = in->rs2;
-  d.funct7 = in->funct7;
-  d.immediate = in->imm;
-  d.name = in->name;
-
   uint32 a = in->val1, b = in->val2;
 
-  /* Forwarding EX/WB -> EX: si la instruccion que esta en WB escribe un
-     registro fuente de esta, se usa su resultado (es el valor mas reciente;
-     el leido en ID es anterior). Sirve tambien a branches y JALR. */
+  /* Forward from EX/WB when ID read a source before its latest write. */
   if (cpu->forwarding_enabled)
   {
     const ex_wb_t *p = &cpu->ex_wb;
-    if (p->valid && p->fault == FAULT_NONE && p->writes_rd && p->rd != 0)
+    if (p->valid && p->writes_rd)
     {
-      if (in->uses_rs1 && in->rs1 == p->rd)
+      if (in->uses_rs1 && d.rs1 == p->rd)
       {
         a = p->result;
         SIM_LOG_INFO(3, cpu->obj, 0, "forward: %08x x%u <- %08x (EX/WB)",
-                     in->pc, in->rs1, p->result);
+                     in->pc, d.rs1, p->result);
       }
-      if (in->uses_rs2 && in->rs2 == p->rd)
+      if (in->uses_rs2 && d.rs2 == p->rd)
       {
         b = p->result;
         SIM_LOG_INFO(3, cpu->obj, 0, "forward: %08x x%u <- %08x (EX/WB)",
-                     in->pc, in->rs2, p->result);
+                     in->pc, d.rs2, p->result);
       }
     }
   }
@@ -456,13 +375,13 @@ static void stage_ex(rv32_t *cpu, const id_ex_t *in, ex_wb_t *out)
   case 0x17u: // AUIPC
     result = pc + (uint32)d.immediate * 4096u;
     break;
-  case 0x13u: // ALU inmediato
+  case 0x13u: // ALU immediate
     result = alu(d, a, (uint32)d.immediate);
     break;
-  case 0x33u: // ALU registros
+  case 0x33u: // ALU registers
     result = alu(d, a, b);
     break;
-  case 0x63u: // Branch: el destino solo se usa (y valida) si se toma
+  case 0x63u: // Validate the branch target only when the branch is taken
     if (branch_taken(d.funct3, a, b))
       next_pc = pc + (uint32)d.immediate;
     break;
@@ -473,25 +392,25 @@ static void stage_ex(rv32_t *cpu, const id_ex_t *in, ex_wb_t *out)
   case 0x67u: // JALR
     result = pc + 4u;
     next_pc = a + (uint32)d.immediate;
-    next_pc -= next_pc % 2u; // borra el bit menos significativo
+    next_pc -= next_pc % 2u; // Clear bit 0 before checking alignment
     break;
   }
 
   if (next_pc % 4u != 0)
   {
-    out->fault = FAULT_MISALIGNED; /* sin escritura de rd */
+    out->fault = FAULT_MISALIGNED;
     return;
   }
 
   out->writes_rd = in->writes_rd;
+  out->rd = d.rd;
   out->result = result;
   out->next_pc = next_pc;
 }
 
-/* Traza de nivel 3: que instruccion ocupa cada etapa en este ciclo.
-   Activar con "log-level 3". */
+/* Format a stage for the level 3 cycle trace. */
 static void trace_slot(strbuf_t *b, const char *stage, bool valid,
-                       fault_t fault, uint32 pc, uint32 word)
+                      fault_t fault, uint32 pc, uint32 word)
 {
   if (!valid)
   {
@@ -503,6 +422,11 @@ static void trace_slot(strbuf_t *b, const char *stage, bool valid,
     sb_addfmt(b, " %s: %08x FETCH-FAIL", stage, pc);
     return;
   }
+  if (fault == FAULT_MISALIGNED)
+  {
+    sb_addfmt(b, " %s: %08x MISALIGNED", stage, pc);
+    return;
+  }
   char *text = rv32_disassemble(word);
   sb_addfmt(b, " %s: %08x %s", stage, pc, text);
   MM_FREE(text);
@@ -512,9 +436,9 @@ static void trace_cycle(rv32_t *cpu)
 {
   strbuf_t b = SB_INIT;
 
-  /* IF todavia no leyo su palabra: se muestra solo la direccion */
+  /* IF has not read the instruction word yet. */
   if (cpu->fetch_stopped)
-    sb_addfmt(&b, " IF: (detenida)");
+    sb_addfmt(&b, " IF: (stopped)");
   else
     sb_addfmt(&b, " IF: %08x", cpu->fetch_pc);
   trace_slot(&b, "ID", cpu->if_id.valid, cpu->if_id.fault, cpu->if_id.pc,
@@ -527,19 +451,19 @@ static void trace_cycle(rv32_t *cpu)
   sb_free(&b);
 }
 
-/* Un ciclo del pipeline. */
 void execute(rv32_t *cpu)
 {
   increment_cycle(cpu);
-  trace_cycle(cpu);
+  if (SIM_log_level(cpu->obj) >= 3)
+    trace_cycle(cpu);
 
-  /* --- WB: completa la instruccion mas antigua --- */
+  /* WB: retire the oldest instruction. */
   const ex_wb_t wb = cpu->ex_wb;
   if (wb.valid)
   {
     if (wb.fault != FAULT_NONE)
     {
-      cpu->pc = wb.pc; /* el PC queda en la instruccion que fallo */
+      rv32_set_pc(cpu->core, wb.pc);
       switch (wb.fault)
       {
       case FAULT_FETCH:
@@ -552,16 +476,14 @@ void execute(rv32_t *cpu)
         rv32_halt(cpu, "unaligned instruction fetch");
         break;
       }
-      restart_pipeline(cpu);
       return;
     }
 
-    increment_step(cpu); /* EBREAK tambien cuenta */
+    increment_step(cpu); /* EBREAK retires as a completed instruction. */
     if (wb.is_ebreak)
     {
-      cpu->pc = wb.pc;
+      rv32_set_pc(cpu->core, wb.pc);
       ebreak(cpu);
-      restart_pipeline(cpu);
       return;
     }
     if (wb.writes_rd)
@@ -569,43 +491,45 @@ void execute(rv32_t *cpu)
     cpu->pc = wb.next_pc;
   }
 
-  /* --- EX, ID, IF: calculan el estado siguiente a partir del actual --- */
-  ex_wb_t next_wb;
-  id_ex_t next_ex;
-  if_id_t next_id;
+  ex_wb_t next_wb = {0};
+  id_ex_t next_ex = {0};
+  if_id_t next_id = {0};
   uint32 next_fetch_pc = cpu->fetch_pc;
   bool next_fetch_stopped = cpu->fetch_stopped;
 
   stage_ex(cpu, &cpu->id_ex, &next_wb);
 
-  /* EX cambia el flujo si una instruccion valida y sin fallo deja un
-     siguiente PC distinto de pc + 4 (branch tomado, JAL, JALR). */
-  bool redirect = next_wb.valid && next_wb.fault == FAULT_NONE &&
-                  !next_wb.is_ebreak && next_wb.next_pc != next_wb.pc + 4u;
-
-  if (redirect)
+  if (next_wb.valid && (next_wb.fault != FAULT_NONE || next_wb.is_ebreak))
   {
-    /* Flush: lo que hay en ID y lo que IF iba a leer es del camino
-       equivocado. */
+    /* A terminal instruction in EX prevents any younger work. */
+    next_fetch_stopped = true;
+  }
+  else if (next_wb.valid && next_wb.next_pc != next_wb.pc + 4u)
+  {
+    /* A redirect discards ID and skips IF, leaving two bubbles. */
     SIM_LOG_INFO(3, cpu->obj, 0,
-                 "flush: salto de %08x a %08x, se descartan ID e IF",
+                 "flush: redirect from %08x to %08x, discard ID and IF",
                  next_wb.pc, next_wb.next_pc);
-    memset(&next_ex, 0, sizeof next_ex);
-    memset(&next_id, 0, sizeof next_id);
     next_fetch_pc = next_wb.next_pc;
     next_fetch_stopped = false;
   }
   else if (stage_id(cpu, &cpu->if_id, &next_ex))
   {
-    /* Stall: la instruccion se queda en ID y IF no avanza. */
+    /* Hold ID in place and leave the fetch PC unchanged. */
     next_id = cpu->if_id;
   }
-  else
+  else if (next_ex.valid &&
+           (next_ex.fault != FAULT_NONE || next_ex.instruction.opcode == 0x73u))
+  {
+    /* Stop fetching as soon as ID recognizes an instruction that will halt. */
+    next_fetch_stopped = true;
+  }
+  else if (!next_fetch_stopped)
   {
     stage_if(cpu, &next_id, &next_fetch_pc, &next_fetch_stopped);
   }
 
-  /* --- Se aplican todos a la vez --- */
+  /* Publish the next set of latches after all stages finish. */
   cpu->ex_wb = next_wb;
   cpu->id_ex = next_ex;
   cpu->if_id = next_id;
@@ -631,7 +555,7 @@ rv32_disassemble(uint32 word)
 
   switch (d.opcode)
   {
-  case 0x73u: // ECALL/EBREAK
+  case 0x73u: // EBREAK
     sb_addfmt(&b, "%s", d.name);
     break;
   case 0x37u: // LUI

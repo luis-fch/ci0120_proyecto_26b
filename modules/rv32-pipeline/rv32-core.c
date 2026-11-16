@@ -16,7 +16,6 @@
 #include "rv32-helpers.h"
 
 #include <stdio.h>
-#include <string.h>
 #include <simics/processor-api.h>
 #include <simics/simulator/control.h>
 
@@ -35,20 +34,18 @@ rv32_get_pc(cosim_core_t *core)
 void
 rv32_set_pc(cosim_core_t *core, logical_address_t pc)
 {
-        /* Fijar el PC reinicia la ejecucion desde ahi: se vacia el pipeline
-           y la extraccion arranca en la misma direccion. */
+        /* Discard unretired work and restart fetch at the new PC. */
         rv32_t *cpu = rv32_from_core(core);
         cpu->pc = (uint32)pc;
         cpu->fetch_pc = (uint32)pc;
         cpu->fetch_stopped = false;
-        memset(&cpu->if_id, 0, sizeof cpu->if_id);
-        memset(&cpu->id_ex, 0, sizeof cpu->id_ex);
-        memset(&cpu->ex_wb, 0, sizeof cpu->ex_wb);
+        cpu->if_id = (if_id_t){0};
+        cpu->id_ex = (id_ex_t){0};
+        cpu->ex_wb = (ex_wb_t){0};
 }
 
 /*
- * Register table: x0..x31 and pc, visible through pregs, read-reg/write-reg,
- * the int_register interface and one attribute per register.
+ * Architectural registers x0..x31 and pc. Simics exposes each as an attribute.
  */
 static uint64
 reg_get_x(cosim_core_t *core, int n)
@@ -74,8 +71,7 @@ reg_set_pc(cosim_core_t *core, int n, uint64 value)
         rv32_set_pc(core, value);
 }
 
-/* Interruptor de forwarding: expuesto como registro/atributo "forwarding"
-   (0 = solo interlock, 1 = forwarding). Fijarlo antes de ejecutar. */
+/* Simics forwarding attribute: 0 selects the interlock, 1 enables forwarding. */
 static uint64
 reg_get_forwarding(cosim_core_t *core, int n)
 {
@@ -85,7 +81,13 @@ reg_get_forwarding(cosim_core_t *core, int n)
 static void
 reg_set_forwarding(cosim_core_t *core, int n, uint64 value)
 {
-        rv32_from_core(core)->forwarding_enabled = (value != 0);
+        rv32_t *cpu = rv32_from_core(core);
+        bool enabled = value != 0;
+        if (cpu->forwarding_enabled != enabled) {
+                cpu->forwarding_enabled = enabled;
+                /* An instruction in EX may still need the old forwarding mode. */
+                rv32_set_pc(core, cpu->pc);
+        }
 }
 
 void

@@ -256,6 +256,12 @@ void execute(rv32_t *cpu)
   uint32 word;
   increment_cycle(cpu);
 
+  if (pc % 4u != 0)
+  {
+    rv32_halt(cpu, "unaligned instruction fetch");
+    return;
+  }
+
   if (!fetch(cpu, pc, &word))
   {
     rv32_halt(cpu, "instruction fetch failed");
