@@ -1,0 +1,4 @@
+# H13: With 12 bytes of RAM, the jump at 0x08 discards the fetch fault at 0x0c.
+jal x0, 8
+ebreak
+jal x0, -4

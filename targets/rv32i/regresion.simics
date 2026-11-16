@@ -29,7 +29,11 @@ decl {
     param inject_addr : int = -1
     ! If not negative: address of a word to overwrite in RAM after loading.
     param inject_word : int = 0
-    ! Value of the word written at inject_addr (case 08 of PRUEBAS.md).
+    ! Value of the word written at inject_addr.
+    param switch_at_cycle : int = 0
+    ! Pipeline only: run this many cycles, then switch to the other mode.
+    param verify_ram_bytes : int = 0
+    ! Print this many bytes starting at load_address before and after execution.
 }
 
 if $core_kind == "atomic" {
@@ -50,7 +54,19 @@ if $inject_addr >= 0 {
 }
 
 echo "REGRESION core=" + $core_kind + " program=" + $program
+if $verify_ram_bytes > 0 {
+    @import cli
+    @ram_snapshot = lambda: bytes(SIM_read_phys_memory(conf.core0, cli.simenv.load_address + i, 1) for i in range(cli.simenv.verify_ram_bytes)).hex()
+    @print("RAM-BEFORE", ram_snapshot())
+}
+if $core_kind == "pipeline" and $switch_at_cycle > 0 {
+    run $switch_at_cycle cycles
+    core0->forwarding = 1 - $forwarding
+}
 run $max_cycles cycles
+if $verify_ram_bytes > 0 {
+    @print("RAM-AFTER", ram_snapshot())
+}
 pregs
 ptime
 quit

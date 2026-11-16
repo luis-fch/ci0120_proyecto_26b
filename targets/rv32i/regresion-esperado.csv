@@ -1,28 +1,31 @@
-nombre,ruta,extras,motivo,pc,steps,ciclos_monociclo,ciclos_interlock,ciclos_forwarding
-01-arranque,atomic/01-arranque.txt,,ebreak,0x00000004,2,2,5,5
-02-alu-limites,atomic/02-alu-limites.txt,,ebreak,0x0000002c,12,12,18,15
-03-bucle,atomic/03-bucle.txt,,ebreak,0x00000010,9,9,20,16
-04-enlace,atomic/04-enlace.txt,,ebreak,0x00000008,5,5,13,12
-all-instructions,all-instructions.txt,,ebreak,0x000000d4,46,46,67,65
-neg05-branch-desalineado,atomic/negativas/05-branch-desalineado.txt,,unaligned instruction fetch,0x00000004,1,2,6,5
-neg06-jal-desalineado,atomic/negativas/06-jal-desalineado.txt,,unaligned instruction fetch,0x00000004,1,2,5,5
-neg07-branch-no-tomado,atomic/negativas/07-branch-no-tomado.txt,,ebreak,0x0000000c,4,4,8,7
-neg08-palabra-ilegal,atomic/negativas/08-palabra-ilegal.txt,inject_addr=0x4 inject_word=0x02101113,illegal instruction,0x00000004,1,2,5,5
-neg09-fuera-de-ram,atomic/negativas/09-fuera-de-ram.txt,ram_size=0x10,instruction fetch failed,0x00000010,2,3,8,8
-h01-raw-addi,pipeline/h01-raw-addi.txt,,ebreak,0x00000008,3,3,7,6
-h02-raw-add-sub,pipeline/h02-raw-add-sub.txt,,ebreak,0x00000010,5,5,10,8
-h03-raw-rs2,pipeline/h03-raw-rs2.txt,,ebreak,0x0000000c,4,4,8,7
-h04-mismo-registro,pipeline/h04-mismo-registro.txt,,ebreak,0x00000010,5,5,11,8
-h05-distancia-2,pipeline/h05-distancia-2.txt,,ebreak,0x0000000c,4,4,7,7
-h06-branch-dependiente,pipeline/h06-branch-dependiente.txt,,ebreak,0x00000014,5,5,12,10
-h07-jalr-dependiente,pipeline/h07-jalr-dependiente.txt,,ebreak,0x00000014,4,4,10,9
-h08-dos-operandos,pipeline/h08-dos-operandos.txt,,ebreak,0x00000008,3,3,7,6
-h09-x0-sin-dependencia,pipeline/h09-x0-sin-dependencia.txt,,ebreak,0x00000010,5,5,8,8
-h10-branch-tomado,pipeline/h10-branch-tomado.txt,,ebreak,0x00000018,5,5,10,10
-h11-ebreak-descartado,pipeline/h11-ebreak-descartado.txt,,ebreak,0x00000018,5,5,10,10
-h12-branch-no-tomado,pipeline/h12-branch-no-tomado.txt,,ebreak,0x00000014,6,6,10,9
-p01-independientes,pipeline/p01-independientes.txt,,ebreak,0x00000060,25,25,28,28
-01-arranque@0x100,atomic/01-arranque.txt,load_address=0x100,ebreak,0x00000104,2,2,5,5
-03-bucle@0x100,atomic/03-bucle.txt,load_address=0x100,ebreak,0x00000110,9,9,20,16
-04-enlace@0x100,atomic/04-enlace.txt,load_address=0x100,ebreak,0x00000108,5,5,13,12
-h10-branch-tomado@0x100,pipeline/h10-branch-tomado.txt,load_address=0x100,ebreak,0x00000118,5,5,10,10
+nombre,ruta,extras,motivo,pc,steps,ciclos_monociclo,ciclos_interlock,ciclos_forwarding,ram_esperada,registros_esperados
+01-arranque,atomic/01-arranque.txt,verify_ram_bytes=8,ebreak,0x00000004,2,2,5,5,9300500073001000,00000000 00000005 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+02-alu-limites,atomic/02-alu-limites.txt,,ebreak,0x0000002c,12,12,18,15,,
+03-bucle,atomic/03-bucle.txt,,ebreak,0x00000010,9,9,20,16,,
+04-enlace,atomic/04-enlace.txt,,ebreak,0x00000008,5,5,13,12,,
+all-instructions,all-instructions.txt,verify_ram_bytes=216,ebreak,0x000000d4,46,46,67,65,,00000000 12345000 00000004 00000064 fffffff9 00000001 00000000 0000009b 00000764 000000f0 00000640 0000000f fffffffc 0000005d ffffff95 000000c8 00000001 00000000 ffffff9d 7ffffffc fffffffc 000000f4 00000060 00000006 00000000 000000bc 000000c0 000000c8 00000064 00000000 00000000 00000000
+neg05-branch-desalineado,atomic/negativas/05-branch-desalineado.txt,,unaligned instruction fetch,0x00000004,1,2,6,5,,
+neg06-jal-desalineado,atomic/negativas/06-jal-desalineado.txt,,unaligned instruction fetch,0x00000004,1,2,5,5,,
+neg07-branch-no-tomado,atomic/negativas/07-branch-no-tomado.txt,,ebreak,0x0000000c,4,4,8,7,,
+neg08-palabra-ilegal,atomic/negativas/08-palabra-ilegal.txt,inject_addr=0x4 inject_word=0x02101113,illegal instruction,0x00000004,1,2,5,5,,
+neg09-fuera-de-ram,atomic/negativas/09-fuera-de-ram.txt,ram_size=0x10,instruction fetch failed,0x00000010,2,3,8,8,,
+h01-raw-addi,pipeline/h01-raw-addi.txt,,ebreak,0x00000008,3,3,7,6,,
+h02-raw-add-sub,pipeline/h02-raw-add-sub.txt,,ebreak,0x00000010,5,5,10,8,,
+h03-raw-rs2,pipeline/h03-raw-rs2.txt,,ebreak,0x0000000c,4,4,8,7,,
+h04-mismo-registro,pipeline/h04-mismo-registro.txt,,ebreak,0x00000010,5,5,11,8,,
+h05-distancia-2,pipeline/h05-distancia-2.txt,,ebreak,0x0000000c,4,4,7,7,,
+h06-branch-dependiente,pipeline/h06-branch-dependiente.txt,,ebreak,0x00000014,5,5,12,10,,
+h07-jalr-dependiente,pipeline/h07-jalr-dependiente.txt,,ebreak,0x00000014,4,4,10,9,,
+h08-dos-operandos,pipeline/h08-dos-operandos.txt,,ebreak,0x00000008,3,3,7,6,,
+h09-x0-sin-dependencia,pipeline/h09-x0-sin-dependencia.txt,,ebreak,0x00000010,5,5,8,8,,
+h10-branch-tomado,pipeline/h10-branch-tomado.txt,,ebreak,0x00000018,5,5,10,10,,
+h11-ebreak-descartado,pipeline/h11-ebreak-descartado.txt,,ebreak,0x00000018,5,5,10,10,,
+h12-branch-no-tomado,pipeline/h12-branch-no-tomado.txt,,ebreak,0x00000014,6,6,10,9,,
+p01-independientes,pipeline/p01-independientes.txt,,ebreak,0x00000060,25,25,28,28,,
+01-arranque@0x100,atomic/01-arranque.txt,load_address=0x100 verify_ram_bytes=8,ebreak,0x00000104,2,2,5,5,9300500073001000,00000000 00000005 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+03-bucle@0x100,atomic/03-bucle.txt,load_address=0x100,ebreak,0x00000110,9,9,20,16,,
+04-enlace@0x100,atomic/04-enlace.txt,load_address=0x100,ebreak,0x00000108,5,5,13,12,,
+h10-branch-tomado@0x100,pipeline/h10-branch-tomado.txt,load_address=0x100,ebreak,0x00000118,5,5,10,10,,
+01-arranque@ram-end,atomic/01-arranque.txt,ram_size=8,ebreak,0x00000004,2,2,5,5,,
+neg10-pc-inicial-desalineado,atomic/01-arranque.txt,load_address=2 inject_addr=2 inject_word=0x00100073,unaligned instruction fetch,0x00000002,0,1,4,4,,
+h13-fetch-descartado,pipeline/h13-fetch-descartado.txt,ram_size=12 verify_ram_bytes=12,ebreak,0x00000004,3,3,10,10,,00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
