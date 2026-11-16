@@ -1,0 +1,8 @@
+# H11: el EBREAK del camino descartado (0x0c) no debe detener el programa. x1=1 x2=0 x3=3 x4=4 PC=0x18. 0 stalls, 1 flush, 10 cycles.
+addi x1, x0, 1
+addi x3, x0, 3
+bne  x1, x0, 12
+ebreak
+addi x2, x0, 99
+addi x4, x0, 4
+ebreak

@@ -1,0 +1,56 @@
+# © 2026 Intel Corporation
+#
+# This software and the related documents are Intel copyrighted materials, and
+# your use of them is governed by the express license under which they were
+# provided to you ("License"). Unless the License provides otherwise, you may
+# not use, modify, copy, publish, distribute, disclose or transmit this software
+# or the related documents without Intel's prior written permission.
+#
+# This software and the related documents are provided as is, with no express or
+# implied warranties, other than those that are expressly stated in the License.
+
+decl {
+    ! One run of the regression: builds the machine with the chosen core,
+    ! runs the program until it stops, then prints "pregs" and "ptime" and
+    ! quits. Inside a script every command waits for the previous one to
+    ! finish, so the counters are read after the simulation has stopped.
+    ! regresion.ps1 calls this script once per program and per mode.
+
+    params from "rv32.simics" except cpu_class
+
+    param core_kind : string = "pipeline"
+    ! Core to run: "atomic" or "pipeline".
+    param forwarding : int = 0
+    ! Pipeline only: 0 = interlock (stalls), 1 = forwarding EX/WB -> EX.
+    param max_cycles : int = 1000
+    ! Upper limit for "run", so a hung program cannot block the regression.
+    param log_level : int = 1
+    ! Simics log level. 3 prints the per-cycle trace of the pipeline.
+    param inject_addr : int = -1
+    ! If not negative: address of a word to overwrite in RAM after loading.
+    param inject_word : int = 0
+    ! Value of the word written at inject_addr (case 08 of PRUEBAS.md).
+}
+
+if $core_kind == "atomic" {
+    run-script "%script%/rv32-atomic.simics" program = $program load_address = $load_address ram_size = $ram_size freq_mhz = $freq_mhz
+} else {
+    run-script "%script%/rv32-pipeline.simics" program = $program load_address = $load_address ram_size = $ram_size freq_mhz = $freq_mhz
+}
+
+log-level $log_level
+
+if $core_kind == "pipeline" {
+    core0->forwarding = $forwarding
+}
+
+if $inject_addr >= 0 {
+    @import cli
+    @SIM_write_phys_memory(conf.core0, cli.simenv.inject_addr, cli.simenv.inject_word, 4)
+}
+
+echo "REGRESION core=" + $core_kind + " program=" + $program
+run $max_cycles cycles
+pregs
+ptime
+quit

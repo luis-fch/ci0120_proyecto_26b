@@ -1,3 +1,4 @@
+# Esperado: PC=0x60, 25 steps; x1=0x64 x2=0xfffffff9 x3=0x12345000 x23=0x1058 (estado completo en PRUEBAS.md, seccion Pipeline).
 # Paso 2: linea recta. Ninguna instruccion lee un registro escrito por la
 # instruccion inmediatamente anterior (distancia minima 2).
 addi x1, x0, 100

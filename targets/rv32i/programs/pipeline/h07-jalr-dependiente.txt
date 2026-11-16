@@ -1,0 +1,7 @@
+# H07: JALR cuyo rs1 acaba de calcularse (RAW + flush). x1=16 x2=8 x3=0 x4=4 PC=0x14. Interlock: 1 stall y 1 flush, 10 cycles. Forwarding: 9 cycles.
+addi x1, x0, 16
+jalr x2, 0(x1)
+addi x3, x0, 99
+addi x3, x0, 98
+addi x4, x0, 4
+ebreak

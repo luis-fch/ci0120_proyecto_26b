@@ -83,3 +83,19 @@ quit
 `run` runs the program until its `ebreak`.
 
 `pregs` shows the registers.
+
+## Regression
+
+`targets/rv32i/regresion.ps1` runs every program of `regresion-esperado.csv`
+on the atomic core, the pipeline with interlock and the pipeline with
+forwarding, one Simics session each, and compares registers, PC, steps, stop
+reason and cycles. It also checks the stall, forwarding and flush traces and
+the four load errors. Run it from the project directory after building both
+modules:
+
+```
+.\targets\rv32i\regresion.ps1
+```
+
+A single run is `targets\rv32i\regresion.simics`. Both are described in
+[PRUEBAS.md](PRUEBAS.md#pipeline).
