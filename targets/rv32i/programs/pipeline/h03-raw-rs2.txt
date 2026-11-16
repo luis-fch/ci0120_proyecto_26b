@@ -1,4 +1,4 @@
-# H03: RAW solo por rs2 (x2 recien escrito, x1 a distancia 2). x1=4 x2=9 x3=0xfffffffb PC=0x0c. Interlock: 1 stall, 8 cycles. Forwarding: 7 cycles.
+# H03: Distance-1 RAW on rs2 only (x1 was written two instructions earlier). x1=4, x2=9, x3=0xfffffffb, PC=0x0c. Interlock: 1 stall, 8 cycles. Forwarding: 7 cycles.
 addi x1, x0, 4
 addi x2, x0, 9
 sub  x3, x1, x2

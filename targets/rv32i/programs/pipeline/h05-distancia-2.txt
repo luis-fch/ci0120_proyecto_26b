@@ -1,4 +1,4 @@
-# H05: productor a distancia 2 (WB escribe antes de que ID lea): no hay stall. x1=5 x2=6 x3=10 PC=0x0c. 0 stalls, 7 cycles con y sin forwarding.
+# H05: Producer two instructions ahead: WB writes before ID reads. x1=5, x2=6, x3=10, PC=0x0c. 0 stalls, 7 cycles with or without forwarding.
 addi x1, x0, 5
 addi x2, x0, 6
 add  x3, x1, x1

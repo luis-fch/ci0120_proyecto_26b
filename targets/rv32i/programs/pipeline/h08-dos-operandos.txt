@@ -1,4 +1,4 @@
-# H08: la misma dependencia en rs1 y rs2 cuenta un solo stall. x1=3 x2=6 PC=0x08. Interlock: 1 stall, 7 cycles. Forwarding: 6 cycles.
+# H08: The same dependency on rs1 and rs2 produces one stall. x1=3, x2=6, PC=0x08. Interlock: 1 stall, 7 cycles. Forwarding: 6 cycles.
 addi x1, x0, 3
 add  x2, x1, x1
 ebreak

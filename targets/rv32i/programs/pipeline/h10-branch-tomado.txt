@@ -1,4 +1,4 @@
-# H10: BNE tomado con instrucciones posteriores en vuelo. x1=1 x2=0 x3=0 x4=4 x9=9 PC=0x18
+# H10: Taken BNE discards the following instructions. x1=1, x2=0, x3=0, x4=4, x9=9, PC=0x18.
 addi x1, x0, 1
 addi x9, x0, 9
 bne  x1, x0, 12

@@ -1,4 +1,4 @@
-# H09: x0 nunca genera dependencia (se escribe y se lee x0 consecutivamente). x1=0 x2=1 x3=0 PC=0x10. 0 stalls, 8 cycles con y sin forwarding.
+# H09: Consecutive writes to and reads from x0 cannot cause a hazard. x1=0, x2=1, x3=0, PC=0x10. 0 stalls, 8 cycles with or without forwarding.
 addi x0, x0, 5
 add  x1, x0, x0
 addi x2, x0, 1

@@ -1,6 +1,6 @@
-# Esperado: PC=0x60, 25 steps; x1=0x64 x2=0xfffffff9 x3=0x12345000 x23=0x1058 (estado completo en PRUEBAS.md, seccion Pipeline).
-# Paso 2: linea recta. Ninguna instruccion lee un registro escrito por la
-# instruccion inmediatamente anterior (distancia minima 2).
+# Expected: PC=0x60, 25 steps; x1=0x64, x2=0xfffffff9, x3=0x12345000, x23=0x1058.
+# See PRUEBAS.md for the complete register state.
+# No instruction reads a register written by the immediately preceding instruction.
 addi x1, x0, 100
 addi x2, x0, -7
 lui  x3, 0x12345
