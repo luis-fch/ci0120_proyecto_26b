@@ -1,0 +1,27 @@
+# Paso 2: linea recta. Ninguna instruccion lee un registro escrito por la
+# instruccion inmediatamente anterior (distancia minima 2).
+addi x1, x0, 100
+addi x2, x0, -7
+lui  x3, 0x12345
+addi x4, x0, 5
+add  x5, x1, x2
+sub  x6, x1, x4
+slt  x7, x2, x1
+sltu x8, x2, x1
+xor  x9, x1, x2
+or   x10, x1, x4
+and  x11, x1, x2
+sll  x12, x1, x4
+srl  x13, x2, x4
+sra  x14, x2, x4
+slti x15, x2, 0
+sltiu x16, x2, 1
+xori x17, x1, 0xff
+ori  x18, x1, 15
+andi x19, x2, 0x7f
+slli x20, x4, 3
+srli x21, x2, 4
+srai x22, x2, 4
+auipc x23, 1
+addi x0, x1, 5
+ebreak
