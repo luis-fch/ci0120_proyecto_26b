@@ -16,6 +16,7 @@
 #include "rv32-helpers.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <simics/processor-api.h>
 #include <simics/simulator/control.h>
 
@@ -34,7 +35,15 @@ rv32_get_pc(cosim_core_t *core)
 void
 rv32_set_pc(cosim_core_t *core, logical_address_t pc)
 {
-        rv32_from_core(core)->pc = (uint32)pc;
+        /* Fijar el PC reinicia la ejecucion desde ahi: se vacia el pipeline
+           y la extraccion arranca en la misma direccion. */
+        rv32_t *cpu = rv32_from_core(core);
+        cpu->pc = (uint32)pc;
+        cpu->fetch_pc = (uint32)pc;
+        cpu->fetch_stopped = false;
+        memset(&cpu->if_id, 0, sizeof cpu->if_id);
+        memset(&cpu->id_ex, 0, sizeof cpu->id_ex);
+        memset(&cpu->ex_wb, 0, sizeof cpu->ex_wb);
 }
 
 /*

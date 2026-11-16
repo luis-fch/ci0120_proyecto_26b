@@ -19,7 +19,9 @@
 void
 execute(rv32_t *cpu)
 {
-        /* TODO */
+        /* TODO: las cuatro etapas. Por ahora solo cuenta el ciclo para que
+           "run N cycles" termine. */
+        increment_cycle(cpu);
 }
 
 /* Text for Simics' disassemble CLI command (e.g. "disassemble 0x0 10")
