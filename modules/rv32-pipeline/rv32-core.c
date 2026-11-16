@@ -74,6 +74,20 @@ reg_set_pc(cosim_core_t *core, int n, uint64 value)
         rv32_set_pc(core, value);
 }
 
+/* Interruptor de forwarding: expuesto como registro/atributo "forwarding"
+   (0 = solo interlock, 1 = forwarding). Fijarlo antes de ejecutar. */
+static uint64
+reg_get_forwarding(cosim_core_t *core, int n)
+{
+        return rv32_from_core(core)->forwarding_enabled ? 1 : 0;
+}
+
+static void
+reg_set_forwarding(cosim_core_t *core, int n, uint64 value)
+{
+        rv32_from_core(core)->forwarding_enabled = (value != 0);
+}
+
 void
 rv32_init_class(cosim_core_class_t *core_class)
 {
@@ -85,6 +99,9 @@ rv32_init_class(cosim_core_class_t *core_class)
         }
         cosim_core_add_register_declaration(NULL, "pc", 0,
                                              reg_get_pc, reg_set_pc, 0);
+        cosim_core_add_register_declaration(NULL, "forwarding", 0,
+                                             reg_get_forwarding,
+                                             reg_set_forwarding, 0);
 }
 
 rv32_t *

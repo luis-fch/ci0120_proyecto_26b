@@ -260,10 +260,15 @@ static bool branch_taken(uint32 funct3, uint32 a, uint32 b)
  *  Unica excepcion deliberada: WB escribe el banco de registros ANTES de que
  *  ID lo lea en el mismo ciclo (escribe y luego lee).
  *
- *  Riesgos de datos (interlock, sin forwarding): si la instruccion en ID
- *  lee un registro que la instruccion en EX va a escribir, se detiene en ID
- *  un ciclo: ID/EX recibe una burbuja y IF no avanza. Si el productor ya
- *  esta en WB no hace falta esperar, porque WB escribe antes de que ID lea.
+ *  Riesgos de datos. Con cpu->forwarding_enabled == false (por defecto) se
+ *  usa interlock: si la instruccion en ID lee un registro que la instruccion
+ *  en EX va a escribir, se detiene en ID un ciclo: ID/EX recibe una burbuja
+ *  y IF no avanza. Con forwarding_enabled == true, EX toma el operando
+ *  directamente del registro EX/WB (el resultado de la instruccion
+ *  inmediatamente anterior) y no hay stalls: todas las instrucciones del
+ *  subconjunto producen su resultado en EX, asi que nunca hay que esperar.
+ *  Si el productor esta a distancia 2 no hace falta ninguno de los dos,
+ *  porque WB escribe el banco antes de que ID lea.
  *
  *  Riesgos de control (saltos resueltos en EX): si EX cambia el flujo se
  *  redirige fetch_pc y se descartan la instruccion que estaba en ID y la que
@@ -359,10 +364,12 @@ static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
   }
   out->writes_rd = (d.opcode != 0x63u && d.opcode != 0x73u && d.rd != 0);
 
-  /* Interlock: esperar si el operando lo esta calculando la instruccion
-     que esta en EX. */
-  if ((out->uses_rs1 && raw_hazard(&cpu->id_ex, d.rs1)) ||
-      (out->uses_rs2 && raw_hazard(&cpu->id_ex, d.rs2)))
+  /* Interlock (solo sin forwarding): esperar si el operando lo esta
+     calculando la instruccion que esta en EX. Con forwarding, EX lo recibira
+     de EX/WB. */
+  if (!cpu->forwarding_enabled &&
+      ((out->uses_rs1 && raw_hazard(&cpu->id_ex, d.rs1)) ||
+       (out->uses_rs2 && raw_hazard(&cpu->id_ex, d.rs2))))
   {
     SIM_LOG_INFO(3, cpu->obj, 0,
                  "stall: %08x %s espera un registro que EX esta calculando",
@@ -380,7 +387,7 @@ static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
 
 /* EX: calcula resultado, destino y valida la alineacion. No escribe en el
    banco de registros. */
-static void stage_ex(const id_ex_t *in, ex_wb_t *out)
+static void stage_ex(rv32_t *cpu, const id_ex_t *in, ex_wb_t *out)
 {
   memset(out, 0, sizeof *out);
   if (!in->valid)
@@ -413,6 +420,30 @@ static void stage_ex(const id_ex_t *in, ex_wb_t *out)
   d.name = in->name;
 
   uint32 a = in->val1, b = in->val2;
+
+  /* Forwarding EX/WB -> EX: si la instruccion que esta en WB escribe un
+     registro fuente de esta, se usa su resultado (es el valor mas reciente;
+     el leido en ID es anterior). Sirve tambien a branches y JALR. */
+  if (cpu->forwarding_enabled)
+  {
+    const ex_wb_t *p = &cpu->ex_wb;
+    if (p->valid && p->fault == FAULT_NONE && p->writes_rd && p->rd != 0)
+    {
+      if (in->uses_rs1 && in->rs1 == p->rd)
+      {
+        a = p->result;
+        SIM_LOG_INFO(3, cpu->obj, 0, "forward: %08x x%u <- %08x (EX/WB)",
+                     in->pc, in->rs1, p->result);
+      }
+      if (in->uses_rs2 && in->rs2 == p->rd)
+      {
+        b = p->result;
+        SIM_LOG_INFO(3, cpu->obj, 0, "forward: %08x x%u <- %08x (EX/WB)",
+                     in->pc, in->rs2, p->result);
+      }
+    }
+  }
+
   uint32 pc = in->pc;
   uint32 next_pc = pc + 4u;
   uint32 result = 0;
@@ -545,7 +576,7 @@ void execute(rv32_t *cpu)
   uint32 next_fetch_pc = cpu->fetch_pc;
   bool next_fetch_stopped = cpu->fetch_stopped;
 
-  stage_ex(&cpu->id_ex, &next_wb);
+  stage_ex(cpu, &cpu->id_ex, &next_wb);
 
   /* EX cambia el flujo si una instruccion valida y sin fallo deja un
      siguiente PC distinto de pc + 4 (branch tomado, JAL, JALR). */
