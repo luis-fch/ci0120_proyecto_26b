@@ -1,6 +1,20 @@
 # Reporte final — Implementación y verificación de dos cores RV32I en Simics
 
-- **Proyecto:** implementación de un core RV32I monociclo y un core RV32I con pipeline.
+**Universidad de Costa Rica**\
+Escuela de Ciencias de la Computación e Informática\
+CI0120 - Arquitectura de Computadoras
+
+**Proyecto Simics RV32I**\
+Etapa 2: Implementación
+
+**Estudiantes**
+
+- Rigoberto Vega Sanabria - C28330
+- Luis Fonseca Chinchilla - C03035
+
+**Profesor:** Leonardo Villalobos Arias\
+**II Semestre 2026**
+
 - **Entorno de verificación:** Intel Simics 7 (build 7214 win64).
 - **Fecha de la regresión:** 16 de noviembre de 2026.
 
