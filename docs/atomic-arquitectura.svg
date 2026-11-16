@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 453" width="1050" height="453" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title>Core RV32I monociclo</title>
+  <desc>Una llamada a execute lee la instrucción de RAM, la decodifica, calcula resultado y próximo PC, y confirma los efectos. El ensamblador llena la RAM antes de ejecutar.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="pcArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7d3c98"/>
+    </marker>
+  </defs>
+  <rect width="1050" height="453" fill="#fff"/>
+  <text x="525" y="31" text-anchor="middle" font-size="18" font-weight="600" fill="#1a1a1a">Core RV32I monociclo (una instrucción por llamada a execute())</text>
+
+  <!-- Execution path and architectural state -->
+  <g fill="#e8f0fe" stroke="#3b6fd4" stroke-width="1.5">
+    <rect x="168" y="122" width="156" height="100" rx="6"/>
+    <rect x="351" y="122" width="159" height="100" rx="6"/>
+    <rect x="537" y="122" width="180" height="100" rx="6"/>
+    <rect x="744" y="122" width="274" height="100" rx="6"/>
+  </g>
+  <g fill="#eee" stroke="#777" stroke-width="1.5">
+    <rect x="28" y="142" width="113" height="60" rx="6"/>
+    <rect x="168" y="308" width="156" height="57" rx="6"/>
+    <rect x="371" y="308" width="222" height="57" rx="6"/>
+  </g>
+  <rect x="28" y="308" width="113" height="57" rx="6" fill="#fff1e0" stroke="#d98324" stroke-width="1.5"/>
+
+  <g fill="#1a1a1a" text-anchor="middle" font-size="13">
+    <g font-size="15" font-weight="700">
+      <text x="84" y="178">PC</text>
+      <text x="246" y="147">Extracción</text>
+      <text x="430" y="147">Decodificación</text>
+      <text x="627" y="147">Ejecución</text>
+      <text x="881" y="147">Confirmación</text>
+    </g>
+    <text x="246" y="171">Valida el PC</text>
+    <text x="246" y="192">fetch() lee 4 bytes</text>
+    <text x="430" y="171">decode() separa campos</text>
+    <text x="430" y="192">y reconstruye inmediatos</text>
+    <text x="627" y="171">ALU y condición de branch</text>
+    <text x="627" y="192">Resultado y próximo PC</text>
+    <text x="881" y="171">Valida el destino antes de escribir</text>
+    <text x="881" y="192">Actualiza rd, PC y contador de steps</text>
+    <text x="84" y="331" font-weight="600">txt_loader.py</text>
+    <text x="84" y="351">Ensamblador</text>
+    <text x="246" y="331" font-weight="600">RAM de instrucciones</text>
+    <text x="246" y="351">Bytes little-endian</text>
+    <text x="482" y="331" font-weight="600">Banco de registros x0…x31</text>
+    <text x="482" y="351">x0 siempre vale cero</text>
+  </g>
+
+  <g fill="none" stroke="#333" stroke-width="1.8" marker-end="url(#arrow)">
+    <path d="M141,172 H166"/>
+    <path d="M324,172 H349"/>
+    <path d="M510,172 H535"/>
+    <path d="M717,172 H742"/>
+    <path d="M141,337 H166"/>
+    <path d="M246,308 V224"/>
+    <path d="M430,222 V306"/>
+    <path d="M500,308 V255 H627 V224"/>
+    <path d="M881,222 V337 H595"/>
+  </g>
+  <path d="M881,122 V74 H84 V140" fill="none" stroke="#7d3c98" stroke-width="1.8" marker-end="url(#pcArrow)"/>
+  <text x="525" y="65" text-anchor="middle" font-size="13" fill="#7d3c98">Siguiente PC: PC + 4 o destino del salto</text>
+  <g fill="#1a1a1a" font-size="12">
+    <text x="255" y="269">Palabra de instrucción</text>
+    <text x="440" y="269">rs1, rs2</text>
+    <text x="532" y="246">Operandos</text>
+    <text x="726" y="327">Escritura de rd</text>
+  </g>
+
+  <rect x="28" y="389" width="990" height="47" rx="6" fill="#f4f5f7"/>
+  <g fill="#1a1a1a" font-size="12">
+    <text x="44" y="409">Cada llamada cuenta un ciclo. En una parada se conserva el PC de la instrucción.</text>
+    <text x="44" y="426">EBREAK cuenta como step. Un fallo detiene la simulación sin escribir rd ni contar un step.</text>
+  </g>
+</svg>

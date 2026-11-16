@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 590" width="1050" height="590" font-family="Segoe UI, Helvetica, Arial, sans-serif">
   <title>Pipeline RV32I de cuatro etapas: IF, ID, EX, WB</title>
-  <desc>Cuatro etapas con tres registros intermedios (IF/ID, ID/EX, EX/WB), banco de registros, memoria, ruta de forwarding EX/WB a EX, stall en ID y flush de saltos resueltos en EX.</desc>
+  <desc>Cuatro etapas con tres registros intermedios (IF/ID, ID/EX, EX/WB), PC de extracción separado del PC arquitectónico, banco de registros, RAM, forwarding EX/WB a EX, stall en ID y redirección en EX.</desc>
   <defs>
     <marker id="aN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker>
     <marker id="aR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker>
@@ -21,7 +21,7 @@
     <text x="200" y="192" font-size="15" font-weight="700">IF</text>
     <text x="200" y="214" font-size="12">fetch(fetch_pc)</text>
     <text x="200" y="232" font-size="12">fetch_pc += 4</text>
-    <text x="200" y="250" font-size="12">fallo: FAULT_FETCH</text>
+    <text x="200" y="250" font-size="12">valida PC y lectura</text>
 
     <text x="441" y="192" font-size="15" font-weight="700">ID</text>
     <text x="441" y="214" font-size="12">decode(), inmediatos</text>
@@ -35,7 +35,7 @@
 
     <text x="938" y="192" font-size="15" font-weight="700">WB</text>
     <text x="938" y="214" font-size="12">escribe rd (x0 nunca)</text>
-    <text x="938" y="232" font-size="12">cpu-&gt;pc = next_pc, step++</text>
+    <text x="938" y="232" font-size="12">actualiza PC y steps</text>
     <text x="938" y="250" font-size="12">EBREAK o fallo: detiene</text>
   </g>
 
@@ -60,6 +60,9 @@
   <rect x="400" y="390" width="300" height="56" rx="6" fill="#eeeeee" stroke="#777" stroke-width="1.5"/>
   <text x="550" y="415" text-anchor="middle" font-size="13" font-weight="600" fill="#1a1a1a">Banco de registros x0..x31</text>
   <text x="550" y="433" text-anchor="middle" font-size="12" fill="#1a1a1a">WB escribe antes de que ID lea</text>
+  <rect x="827" y="302" width="116" height="52" rx="6" fill="#eeeeee" stroke="#777" stroke-width="1.5"/>
+  <text x="885" y="324" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1a1a">PC arquitectónico</text>
+  <text x="885" y="341" text-anchor="middle" font-size="11" fill="#1a1a1a">visible en pregs</text>
 
   <!-- ===== Flujo normal ===== -->
   <g stroke="#333" stroke-width="1.8" fill="none" marker-end="url(#aN)">
@@ -72,12 +75,13 @@
     <path d="M838,220 H853"/>
     <path d="M200,390 V272"/>
     <path d="M440,390 V272"/>
-    <path d="M938,272 V418 H702"/>
+    <path d="M972,272 V418 H702"/>
+    <path d="M885,272 V300"/>
   </g>
   <g fill="#1a1a1a" font-size="11">
     <text x="206" y="335">palabra de 4 bytes</text>
     <text x="446" y="335">rs1, rs2</text>
-    <text x="946" y="335">rd = result</text>
+    <text x="964" y="407" text-anchor="end">rd = result</text>
   </g>
 
   <!-- ===== Stall (interlock) ===== -->
@@ -86,12 +90,12 @@
     <path d="M441,118 H564 V148"/>
   </g>
   <text x="320" y="110" text-anchor="middle" font-size="12" fill="#c0392b" font-weight="600">stall: ID lee un registro que EX va a escribir (forwarding = 0)</text>
-  <text x="620" y="128" font-size="11" fill="#c0392b">burbuja a EX</text>
+  <text x="571" y="143" font-size="11" fill="#c0392b">burbuja a EX</text>
   <text x="206" y="150" font-size="11" fill="#c0392b">IF e IF/ID retienen</text>
 
   <!-- ===== Flush ===== -->
   <path d="M687,168 V62 H60 V183" stroke="#7d3c98" stroke-width="1.8" fill="none" marker-end="url(#aP)"/>
-  <text x="560" y="55" text-anchor="middle" font-size="12" fill="#7d3c98" font-weight="600">flush: EX resuelve branch tomado, JAL o JALR; redirige fetch_pc y descarta IF/ID e ID/EX (2 ciclos)</text>
+  <text x="560" y="55" text-anchor="middle" font-size="12" fill="#7d3c98" font-weight="600">flush: si el destino difiere de PC + 4, EX redirige fetch_pc, descarta ID y omite IF (2 ciclos)</text>
 
   <!-- ===== Forwarding ===== -->
   <path d="M810,292 V350 H660 V272" stroke="#1e8449" stroke-width="1.8" fill="none" marker-end="url(#aG)"/>
@@ -102,9 +106,9 @@
   <g fill="#1a1a1a" font-size="12">
     <text x="30" y="482" font-weight="700">Contenido de los registros intermedios</text>
     <text x="30" y="502"><tspan font-weight="700">IF/ID:</tspan> valid, pc, word, fault</text>
-    <text x="30" y="520"><tspan font-weight="700">ID/EX:</tspan> valid, pc, word, fault, opcode, rd, funct3, funct7, rs1, rs2, imm, uses_rs1/2, writes_rd, val1, val2</text>
+    <text x="30" y="520"><tspan font-weight="700">ID/EX:</tspan> valid, pc, word, fault, instruction, uses_rs1/2, writes_rd, val1, val2</text>
     <text x="30" y="538"><tspan font-weight="700">EX/WB:</tspan> valid, pc, word, fault, writes_rd, is_ebreak, rd, result, next_pc</text>
-    <text x="30" y="562">Sin etapa MEM: el subconjunto no tiene LW/SW. Un fallo o EBREAK viaja hasta WB y solo ahí detiene la simulación.</text>
-    <text x="30" y="580">Con N instrucciones y sin riesgos: N + 3 ciclos. Con riesgos: steps + 3 + stalls + 2 × flushes.</text>
+    <text x="30" y="562">La simulación se detiene en WB al confirmar EBREAK o un fallo. El PC conserva la dirección de la parada.</text>
+    <text x="30" y="580">Ciclos: steps + 3 + stalls + 2 × flushes. Se suma 1 si el último ciclo confirma un fallo.</text>
   </g>
 </svg>

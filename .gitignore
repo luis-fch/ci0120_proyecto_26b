@@ -5,6 +5,7 @@
 !/modules/**
 !/targets/
 !/targets/**
+!AGENTS.md
 !README.md
 !CONVENTIONS.md
 !TODO.md

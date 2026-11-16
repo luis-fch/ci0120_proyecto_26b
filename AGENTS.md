@@ -1,0 +1,11 @@
+# Proyecto Simics RV32I
+
+- Lee [README.md](README.md) para compilar y ejecutar, y [CONVENTIONS.md](CONVENTIONS.md) para el formato de los programas y las instrucciones admitidas.
+- Consulta [Presentacion-rv32i.pdf](Presentacion-rv32i.pdf), pp. 12–22, para los archivos editables, contadores, desensamblado y comandos de depuración. Deja intactos `cosim*` y `event-queue*`.
+- La **Parte 1** vive en `modules/rv32-atomic/` y sirve como referencia arquitectónica. La **Parte 2** vive en `modules/rv32-pipeline/` y tiene cuatro etapas (IF, ID, EX, WB), con interlock por defecto y forwarding opcional. Usa el target correspondiente en `targets/rv32i/`. Consulta el [reporte de diseño](docs/reporte_final_rv32i.md) y [PRUEBAS.md](PRUEBAS.md).
+- Los puntos de entrada de cada módulo son `load_program()` en `txt_loader.py` y `execute()` en `rv32-atomic.c` o `rv32-pipeline.c`. Mantén compatibles ambos cargadores. Reutiliza los helpers y usa `reg_read_x()` / `reg_write_x()` para preservar `x0 = 0`.
+- Una llamada a `execute()` cuenta un ciclo. Cuenta un step por instrucción completada (en WB para el pipeline), incluido `ebreak`. Los fallos no cuentan como step. En ambos tipos de parada, el PC conserva la dirección correspondiente.
+- En el pipeline, separa el PC arquitectónico de `fetch_pc`. Resuelve saltos en EX y aplica escrituras, steps y paradas en orden en WB. Si se cambia el PC o el modo de forwarding, descarta lo que no se haya confirmado y reinicia la extracción desde el PC correspondiente.
+- Limita la ISA a `CONVENTIONS.md`. La RAM solo se usa para instrucciones; los accesos deben estar alineados a cuatro bytes. Escribe en inglés los comentarios del código, los identificadores nuevos y los mensajes de diagnóstico de los cores. Explica las operaciones de bits cuando no sean evidentes.
+- En Windows, compila con `bin\make.bat rv32-atomic rv32-pipeline` y abre una sesión nueva de Simics después de editar C, encabezados o el cargador. Durante la depuración usa un límite como `run 64 cycles`. Prueba primero casos pequeños y luego ejecuta `.\targets\rv32i\regresion.ps1` para comparar los tres modos.
+- Documenta las entradas, los resultados esperados y los observados. Distingue las predicciones de las ejecuciones reales en Simics. No edites archivos generados en `win64/` ni alteres las instrucciones de los programas de referencia al añadir casos.

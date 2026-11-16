@@ -1,4 +1,4 @@
-# Pruebas de error del core de un ciclo
+# Pruebas de error de RV32I
 
 Cada archivo provoca una condición concreta. El caso 07 sirve de control para comprobar que la detección de desalineación depende de si se toma el branch.
 
@@ -42,3 +42,6 @@ El desensamblado debe mostrar `.word 0x02101113`. Después ejecuta los comandos 
 Para el **caso 09**, añade `ram_size=0x10` al comando de arranque. Las cuatro palabras ocupan exactamente los 16 bytes de RAM y el JAL se completa al fijar el PC en `0x10`. La extracción siguiente intenta leer desde una dirección que queda fuera de la RAM.
 
 Los nueve resultados se comprobaron en Simics 7 con el módulo `rv32-atomic` del proyecto.
+La [regresión del proyecto](../../../../../PRUEBAS.md#pipeline) también ejecuta
+estos casos en el pipeline y comprueba la parada con un PC inicial desalineado
+usando el programa de arranque.

@@ -26,6 +26,10 @@ Programs are text files (`.txt`) in RV32I assembly.
 - The target of a branch or `jal` is a byte offset from that instruction.
 - No labels, no pseudo-instructions.
 - The first instruction is placed at the load address, expected to be 0x0.
+- Instructions are four bytes wide and must start at an address divisible by
+  four. Branch and JAL offsets can encode any even byte offset, but an actual
+  control transfer to a misaligned target stops execution. JALR clears bit 0
+  of the computed target before checking alignment.
 - `ebreak` ends the program.
 
 ## Instructions

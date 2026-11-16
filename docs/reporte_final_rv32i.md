@@ -1,10 +1,8 @@
 # Reporte final — Implementación y verificación de dos cores RV32I en Simics
 
-**Curso:** [Nombre del curso]  
-**Proyecto:** Implementación de un core RV32I monociclo y un core RV32I con pipeline  
-**Integrantes:** [Nombres de los integrantes]  
-**Fecha:** [Fecha de entrega]  
-**Entorno:** Intel Simics 7, proyecto RV32I
+- **Proyecto:** implementación de un core RV32I monociclo y un core RV32I con pipeline.
+- **Entorno de verificación:** Intel Simics 7 (build 7214 win64).
+- **Fecha de la regresión:** 16 de noviembre de 2026.
 
 ---
 
@@ -12,13 +10,13 @@
 
 Este proyecto implementa dos modelos de procesador que ejecutan un subconjunto de instrucciones RV32I en Intel Simics: un core monociclo (`rv32-atomic`) y un core segmentado de cuatro etapas (`rv32-pipeline`). Ambos utilizan el mismo formato de programas de ensamblador, el mismo conjunto de instrucciones y una memoria RAM para almacenar y extraer instrucciones.
 
-El core monociclo completa el ciclo de una instrucción mediante extracción, decodificación, ejecución y actualización del estado arquitectónico. El core pipeline distribuye el trabajo entre cuatro etapas concurrentes: IF (Instruction Fetch), ID (Instruction Decode), EX (Execute) y WB (Write Back). Para conservar la equivalencia funcional entre ambos modelos, el pipeline implementa detección de dependencias RAW, interlock, forwarding, redirección del PC y descarte (*flush*) de instrucciones del camino incorrecto.
+El core monociclo completa el ciclo de una instrucción mediante extracción, decodificación, ejecución y actualización del estado arquitectónico. El core pipeline distribuye el trabajo entre cuatro etapas concurrentes: IF (Instruction Fetch), ID (Instruction Decode), EX (Execute) y WB (Write Back). El pipeline usa interlock o forwarding para resolver dependencias RAW (*read after write*). Resuelve el control de flujo en EX y aplica los efectos arquitectónicos en WB.
 
 La verificación del core monociclo se organiza por módulo y mediante programas de integración. La verificación del pipeline se organiza por etapa y por comportamiento del sistema completo. Se comparan los registros, el PC, los steps, el motivo de parada y los ciclos de ejecución.
 
-> **Alcance de memoria:** el subconjunto implementado utiliza RAM para cargar y extraer instrucciones. No incluye instrucciones de acceso a memoria de datos como `LW` o `SW`. Por tanto, las pruebas de memoria de este proyecto comprueban la carga del programa, la lectura de instrucciones y los fallos de extracción, no operaciones load/store.
+El enunciado escrito fija cuatro etapas y limita las instrucciones a operaciones aritméticas, lógicas y de control de flujo. La RAM funciona como memoria de instrucciones. La verificación prueba la carga, la extracción y la conservación de esos bytes durante la ejecución.
 
-> **Estado de la evidencia:** los resultados del core monociclo están documentados como observados en Simics 7 en `PRUEBAS.md`. Para el pipeline, el repositorio contiene evidencia real de Simics para los casos H01–H03 y para el arranque/llenado descrito en `PRUEBAS.md`. El mismo documento identifica otros resultados como obtenidos con un modelo de referencia y pendientes de confirmación en Simics. Este reporte mantiene esa distinción; no presenta resultados de referencia como si fueran ejecuciones confirmadas.
+> **Estado de la evidencia:** la [regresión completa en Simics 7](evidencia/regresion-simics7.md) confirmó los 30 casos de la matriz en los tres modos, 13 trazas, el cambio de forwarding y los cuatro rechazos de carga en ambos cores. [PRUEBAS.md](../PRUEBAS.md) separa los valores esperados de los resultados observados.
 
 ## 1. Objetivos
 
@@ -102,20 +100,11 @@ El core valida la alineación del destino antes de escribir el registro destino.
 
 ## 3.4. Diagrama del core monociclo
 
-**[PLACEHOLDER — FIGURA 1. Diagrama de arquitectura del core monociclo]**
+![Ruta de datos y actualización del PC en el core monociclo](atomic-arquitectura.svg)
 
-Insertar aquí un diagrama que muestre, como mínimo:
-
-- PC conectado a la memoria de instrucciones.
-- Memoria de instrucciones y bloque de fetch.
-- Decodificador de instrucciones.
-- Banco de registros `x0..x31`.
-- ALU y comparador de branches.
-- Generación del próximo PC y selección entre `PC + 4`, destino de branch, `JAL` y `JALR`.
-- Ruta de escritura del resultado hacia el banco de registros.
-- Señales de control principales.
-
-**Cómo obtener la evidencia:** el diagrama del core atómico no existe todavía en el ZIP entregado. Debe elaborarse como figura del diseño (por ejemplo, en draw.io, diagrams.net o una herramienta equivalente); no existe un comando de Simics que genere automáticamente ese diagrama. Guardarlo como `docs/atomic-arquitectura.png` o `.svg` y sustituir este placeholder por la imagen.
+La confirmación actualiza el banco y selecciona el PC siguiente: `PC + 4`
+o el destino calculado por un branch o salto. Si la instrucción causa una
+parada, se conserva su PC.
 
 ## 3.5. Plan de verificación del core monociclo por módulo
 
@@ -145,7 +134,19 @@ Los errores de carga se reportan con el archivo y el número de línea. Los cuat
 | M02 | `01-arranque.txt` | Desensamblar dos instrucciones | `addi x1, x0, 5` y `ebreak` |
 | M03 | `09-fuera-de-ram.txt`, `ram_size=0x10` | Saltar a la dirección `0x10` y extraer | Parada por `instruction fetch failed`, PC `0x10` |
 
-M01 y M02 permiten comprobar que los bytes `93 00 50 00` corresponden a la palabra `0x00500093`, y que los bytes `73 00 10 00` corresponden a `0x00100073`.
+Simics mostró la siguiente memoria y desensamblado antes de ejecutar `01-arranque.txt`.
+
+```text
+v:0x00000000  9300 5000 7300 1000                      ..P.s...
+v:0x00000000 p:0x00000000  addi x1, x0, 5
+v:0x00000004 p:0x00000004  ebreak
+```
+
+En little-endian, `93 00 50 00` es la palabra `0x00500093` y
+`73 00 10 00` es `0x00100073`. En los tres modos, la regresión
+comprobó que esos ocho bytes conservaban su valor al parar. También
+comparó entre los cores los 216 bytes de `all-instructions.txt`, antes
+y después de ejecutar sus 46 instrucciones confirmadas.
 
 ### 3.5.3. Decodificador y desensamblador (`decode()` y `rv32_disassemble()`)
 
@@ -212,6 +213,8 @@ Estado esperado relevante:
 - `pregs` permite observar los registros y el PC.
 - `ptime` permite observar steps y cycles.
 
+El caso `02-alu-limites.txt` comprueba las escrituras a `x0`. El volcado final mostró `x0=0` y `ptime` registró 12 steps y 12 ciclos. En el caso de palabra ilegal el volcado registró 1 step y 2 ciclos, pues solo se confirmó el ADDI anterior.
+
 ## 3.6. Resultados del core monociclo
 
 `PRUEBAS.md` documenta que los cinco programas positivos, los cuatro errores de carga y los cinco casos de ejecución/control fueron observados en Simics 7 y coincidieron con los resultados esperados.
@@ -259,12 +262,9 @@ pc  = 0x000000d4
 | `08-palabra-ilegal.txt` | `illegal or unsupported instruction 0x02101113 at 0x00000004`; 1 step y 2 cycles |
 | `09-fuera-de-ram.txt` | `instruction fetch failed`, PC `0x10`; 2 steps y 3 cycles |
 
-**[PLACEHOLDER — FIGURA 2. Evidencia de Simics del core monociclo]**
-
-Capturas recomendadas:
-1. `pregs` después de ejecutar `all-instructions.txt`, mostrando el estado final.
-2. `ptime` de la misma ejecución, mostrando 46 steps y 46 cycles.
-3. `x 0x0 8` y `disassemble 0x0 2` para evidenciar la carga y el orden de bytes.
+La [regresión](evidencia/regresion-simics7.md) registró 46 steps y 46
+cycles en el monociclo para `all-instructions.txt`. El caso de PC inicial
+`0x02` se detuvo por desalineación con 0 steps y 1 cycle.
 
 ---
 
@@ -288,7 +288,7 @@ El archivo `modules/rv32-pipeline/rv32-core.h` declara el estado del pipeline.
 | Registro | Campos principales | Función |
 |---|---|---|
 | IF/ID | `valid`, `pc`, `word`, `fault` | Conserva la instrucción extraída y su PC |
-| ID/EX | `valid`, `pc`, `word`, campos decodificados, inmediatos, operandos, `uses_rs1`, `uses_rs2`, `writes_rd` | Transporta la instrucción y los operandos hacia EX |
+| ID/EX | `valid`, `pc`, `word`, `fault`, `instruction`, operandos, `uses_rs1`, `uses_rs2`, `writes_rd` | Transporta la instrucción y los operandos hacia EX |
 | EX/WB | `valid`, `pc`, `word`, `fault`, `writes_rd`, `is_ebreak`, `rd`, `result`, `next_pc` | Transporta el resultado y los efectos hacia WB |
 
 El core mantiene dos direcciones distintas:
@@ -302,7 +302,7 @@ Cada registro intermedio tiene un indicador `valid`. Un registro inválido repre
 
 ### IF — Instruction Fetch
 
-- Lee cuatro bytes de RAM desde `fetch_pc`.
+- Comprueba que `fetch_pc` sea múltiplo de cuatro antes de leer los cuatro bytes de RAM.
 - Reconstruye la palabra de instrucción en little-endian.
 - Guarda la palabra y el PC original en IF/ID.
 - Avanza `fetch_pc` cuatro bytes si la lectura fue exitosa.
@@ -355,7 +355,7 @@ El diseño permite ejecutar en dos modos:
 - **Interlock (`forwarding = 0`):** si ID detecta que la instrucción en EX va a escribir un registro que la instrucción en ID necesita, mantiene la instrucción en ID, detiene IF e inserta una burbuja en EX.
 - **Forwarding (`forwarding = 1`):** EX recibe el resultado de la instrucción anterior desde EX/WB, sin esperar a que el consumidor vuelva a leer el valor actualizado del banco.
 
-El forwarding también se utiliza para los operandos de branches y para `JALR`. Las escrituras a `x0` no generan dependencias. Para la organización de cuatro etapas implementada, una dependencia de distancia 1 requiere un stall con interlock; una dependencia de distancia 2 puede leer el valor porque WB escribe antes de que ID lea en ese ciclo.
+El forwarding también se utiliza para los operandos de branches y para `JALR`. Las escrituras a `x0` no generan dependencias. Para la organización de cuatro etapas implementada, una dependencia de distancia 1 requiere un stall con interlock; una dependencia de distancia 2 puede leer el valor porque WB escribe antes de que ID lea en ese ciclo. Cambiar el modo con Simics en pausa descarta los registros intermedios y vuelve a extraer desde el PC arquitectónico, sin perder las instrucciones confirmadas.
 
 ## 4.5. Riesgos de control: branches y saltos
 
@@ -367,7 +367,7 @@ Los branches se evalúan en EX. Cuando un branch es tomado o una instrucción `J
 4. Se invalidan las instrucciones jóvenes en ID e IF.
 5. La extracción continúa desde el destino correcto.
 
-El descarte de las dos instrucciones jóvenes se registra como `flush`. Las instrucciones descartadas no pueden escribir registros, incrementar steps ni detener Simics.
+Cuando el destino difiere de `PC + 4`, la redirección descarta la instrucción de ID y omite la lectura de IF. La traza lo registra como `flush`. Las instrucciones descartadas no pueden escribir registros, incrementar steps ni detener Simics.
 
 Los branches no tomados no generan flush. La alineación de un destino de branch solo se comprueba si la condición se cumple. `JALR` elimina el bit menos significativo de la dirección calculada antes de validar que el destino sea múltiplo de cuatro.
 
@@ -375,9 +375,9 @@ Los branches no tomados no generan flush. La alineación de un destino de branch
 
 EBREAK y los fallos viajan con la instrucción hasta WB. Esto conserva el orden de confirmación:
 
-- EBREAK detiene la simulación cuando llega a WB.
+- EBREAK detiene la simulación cuando llega a WB. Al reconocerlo en ID, el core para la extracción para no leer después de la última instrucción.
 - Una instrucción ilegal detiene la simulación al llegar a WB.
-- Un fallo de fetch se transporta hasta WB.
+- Un fallo de lectura o un PC de extracción desalineado se transporta hasta WB.
 - Un destino desalineado no permite escribir el registro destino.
 - Una instrucción de un camino descartado no puede detener el programa.
 
@@ -385,11 +385,7 @@ El contador de cycles incrementa una vez por llamada a `execute()`, incluso dura
 
 ## 4.7. Diagrama del pipeline
 
-El repositorio ya contiene el diagrama `docs/pipeline-arquitectura.svg`, que representa las cuatro etapas, los tres registros intermedios, el banco de registros, la ruta de forwarding, el stall y el flush.
-
-**[PLACEHOLDER — FIGURA 3. Diagrama de arquitectura pipeline]**
-
-Insertar el archivo existente `docs/pipeline-arquitectura.svg` en esta sección. No es necesario volver a dibujarlo, salvo que se modifique la arquitectura.
+![Arquitectura del pipeline de cuatro etapas](pipeline-arquitectura.svg)
 
 ---
 
@@ -403,6 +399,7 @@ La verificación por etapa utiliza programas dirigidos y trazas de nivel 3 (`log
 |---|---|---|---|
 | IF | `01-arranque.txt` | Dirección y palabra extraída | IF avanza desde `0x0` a `0x4`; la instrucción anterior aparece en ID |
 | IF | `09-fuera-de-ram.txt`, `ram_size=0x10` | Fallo de lectura | `FETCH-FAIL` viaja hasta WB y detiene con PC `0x10` |
+| IF/EX | H13, 12 bytes de RAM | Fallo de lectura especulativa tras un salto | `FETCH-FAIL` se ve en ID, pero no llega a WB. Termina con PC `0x04` y 3 steps |
 | ID | `03-bucle.txt`, H10 | Decodificación de inmediatos y registros | Aparecen `addi x1, x1, -1` y branches con offsets correctos |
 | ID | H01 con interlock | Detección de RAW | Mensaje `stall:` y burbuja en EX |
 | ID | Palabra ilegal inyectada | Detección de instrucción no soportada | `.word 0x02101113` y fallo al llegar a WB |
@@ -432,9 +429,10 @@ Se reutilizan los programas del core monociclo y se agregan programas específic
 | H10 `h10-branch-tomado.txt` | Branch tomado descarta dos instrucciones jóvenes | `x1=1`, `x2=0`, `x3=0`, `x4=4`, `x9=9`; 5 steps | 0 / 1 | 10 / 10 |
 | H11 `h11-ebreak-descartado.txt` | EBREAK del camino descartado no detiene | `x1=1`, `x2=0`, `x3=3`, `x4=4`; 5 steps | 0 / 1 | 10 / 10 |
 | H12 `h12-branch-no-tomado.txt` | Branch dependiente no tomado | `x1=1`, `x2=2`, `x3=3`, `x4=4`; 6 steps | 1 / 0 | 10 / 9 |
+| H13 `h13-fetch-descartado.txt` | Salto desde la última palabra de RAM | Registros en cero, PC `0x04`, RAM intacta, 3 steps | 0 / 2 | 10 / 10 |
 | P01 `p01-independientes.txt` | 25 instrucciones independientes y llenado/vaciado | 25 steps, PC `0x60` | 0 / 0 | 28 / 28 |
 
-Los ciclos de esta tabla son los valores de referencia registrados en `PRUEBAS.md`. El propio documento indica que, salvo los casos de Simics confirmados que se identifican en la sección de resultados, los restantes valores fueron obtenidos con un modelo de referencia y estaban pendientes de confirmación en Simics.
+Los ciclos esperados de la tabla coincidieron con los de la [regresión en Simics 7](evidencia/regresion-simics7.md).
 
 ### Pruebas heredadas del core monociclo
 
@@ -445,7 +443,7 @@ También se ejecutan en el pipeline:
 - Los casos de branch desalineado, JAL desalineado, branch no tomado con destino codificado desalineado, palabra ilegal y fetch fuera de RAM.
 - El programa `all-instructions.txt`, que cubre el subconjunto completo.
 
-El criterio de equivalencia es que ambos cores terminen con los mismos registros, PC, steps y motivo de parada. Los ciclos no tienen que coincidir.
+El criterio de equivalencia es que ambos cores terminen con los mismos registros, PC, steps, motivo de parada y contenido de RAM. La regresión verifica la RAM en los casos de arranque, el programa de integración y H13.
 
 ## 5.3. Traza de espera por dependencia (H01)
 
@@ -465,11 +463,11 @@ Traza registrada:
 [core0 info]  IF: 00000000 ID: ---------------- EX: ---------------- WB: ----------------
 [core0 info]  IF: 00000004 ID: 00000000 addi x1, x0, 10 EX: ---------------- WB: ----------------
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: 00000000 addi x1, x0, 10 WB: ----------------
-[core0 info] stall: 00000004 addi espera un registro que EX esta calculando
+[core0 info] stall: 00000004 addi waits for an operand from EX
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: ---------------- WB: 00000000 addi x1, x0, 10
 [core0 info]  IF: 0000000c ID: 00000008 ebreak EX: 00000004 addi x2, x1, 5 WB: ----------------
-[core0 info]  IF: 00000010 ID: 0000000c .word 0x00000000 EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
-[core0 info]  IF: 00000014 ID: 00000010 .word 0x00000000 EX: 0000000c .word 0x00000000 WB: 00000008 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000008 ebreak
 [core0 info] halted at pc 0x00000008: ebreak
 ```
 
@@ -483,8 +481,8 @@ Con forwarding habilitado, la instrucción consumidora recibe el valor de `x1` d
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: 00000000 addi x1, x0, 10 WB: ----------------
 [core0 info]  IF: 0000000c ID: 00000008 ebreak EX: 00000004 addi x2, x1, 5 WB: 00000000 addi x1, x0, 10
 [core0 info] forward: 00000004 x1 <- 0000000a (EX/WB)
-[core0 info]  IF: 00000010 ID: 0000000c .word 0x00000000 EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
-[core0 info]  IF: 00000014 ID: 00000010 .word 0x00000000 EX: 0000000c .word 0x00000000 WB: 00000008 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000008 ebreak
 [core0 info] halted at pc 0x00000008: ebreak
 ```
 
@@ -494,44 +492,29 @@ Resultado: mismo estado arquitectónico, 3 steps y 6 cycles.
 
 El programa H10 realiza un `BNE` tomado desde `0x08` hacia `0x14`. En ese momento, una instrucción señuelo se encuentra en ID y otra dirección está pendiente de extracción en IF. Ambas pertenecen al camino incorrecto y deben descartarse.
 
-Fragmento de la traza de referencia:
+Fragmento de la traza observada en Simics 7:
 
 ```text
 [core0 info]  IF: 00000010 ID: 0000000c addi x2, x0, 99 EX: 00000008 bne x1, x0, 12 WB: 00000004 addi x9, x0, 9
-[core0 info] flush: salto de 00000008 a 00000014, se descartan ID e IF
+[core0 info] flush: redirect from 00000008 to 00000014, discard ID and IF
 [core0 info]  IF: 00000014 ID: ---------------- EX: ---------------- WB: 00000008 bne x1, x0, 12
 [core0 info]  IF: 00000018 ID: 00000014 addi x4, x0, 4 EX: ---------------- WB: ----------------
 [core0 info]  IF: 0000001c ID: 00000018 ebreak EX: 00000014 addi x4, x0, 4 WB: ----------------
-[core0 info]  IF: 00000020 ID: 0000001c .word 0x00000000 EX: 00000018 ebreak WB: 00000014 addi x4, x0, 4
-[core0 info]  IF: 00000024 ID: 00000020 .word 0x00000000 EX: 0000001c .word 0x00000000 WB: 00000018 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000018 ebreak WB: 00000014 addi x4, x0, 4
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000018 ebreak
 [core0 info] halted at pc 0x00000018: ebreak
 ```
 
 El resultado esperado es que las instrucciones descartadas no modifiquen `x2` ni `x3`. El estado final es `x1=1`, `x2=0`, `x3=0`, `x4=4`, `x9=9`, PC `0x18`, 5 steps y 10 cycles.
 
-**Importante sobre la evidencia:** `PRUEBAS.md` presenta esta traza como resultado del modelo de referencia pendiente de confirmación en Simics. Debe generarse y guardarse la traza de Simics con el comando indicado en la sección 7 antes de etiquetarla como resultado observado en Simics.
+## 5.5. Resultados en Simics 7
 
-## 5.5. Resultados de pipeline confirmados y pendientes
-
-### Evidencia real de Simics disponible en el ZIP
-
-El archivo `regresion-salida/resultados.md` contiene el siguiente resumen:
-
-| Programa | Steps | Ciclos monociclo | Ciclos interlock | Ciclos forwarding | Estado |
-|---|---:|---:|---:|---:|---|
-| H01 `h01-raw-addi` | 3 | 3 | 7 | 6 | OK |
-| H02 `h02-raw-add-sub` | 5 | 5 | 10 | 8 | OK |
-| H03 `h03-raw-rs2` | 4 | 4 | 8 | 7 | OK |
-
-El estado `OK` corresponde a la comparación automática de registros, PC, steps, motivo de parada y ciclos frente a los valores esperados. El ZIP incluye las salidas de Simics para H01 en los modos monociclo, interlock y forwarding, además de las trazas H01 con forwarding desactivado y activado.
-
-`PRUEBAS.md` también documenta como observados en Simics 7 el llenado/vaciado con `01-arranque.txt` (2 instrucciones, 5 ciclos en pipeline) y el resultado H01 en ambos modos.
-
-### Resultados de referencia que requieren confirmación final en Simics
-
-Los resultados de H04–H12, P01, las comparaciones completas de los programas del core monociclo en el pipeline, la ejecución con `load_address=0x100` y la traza de flush H10 aparecen en `PRUEBAS.md` como obtenidos mediante un modelo de referencia y pendientes de confirmar en Simics.
-
-Por ello, antes de entregar el reporte, se debe ejecutar la regresión completa descrita en la sección 7. El reporte final debe actualizar esta tabla con el `resultados.md` generado por esa ejecución. No se debe marcar toda la matriz como verificada en Simics hasta que la regresión completa termine sin fallos y se conserven sus salidas.
+La [salida de la regresión](evidencia/regresion-simics7.md) contiene los
+resultados de cada caso, con 112 sesiones completadas sin fallos. Las
+pruebas reproducen también un `ebreak` en la última palabra de RAM,
+un PC inicial desalineado y un cambio de forwarding con una dependencia RAW
+en vuelo. Los resultados de esos tres casos se detallan en
+[PRUEBAS.md](../PRUEBAS.md#casos-de-la-revisión).
 
 ---
 
@@ -565,7 +548,7 @@ En los programas que terminan por un fallo se agrega un ciclo por la instrucció
 cycles = steps + 3 + stalls + 2 × flushes + 1
 ```
 
-Los tres ciclos adicionales representan el llenado del pipeline. Cada stall agrega un ciclo. Cada flush de branch tomado, JAL o JALR descarta dos instrucciones jóvenes y agrega dos ciclos.
+Los tres ciclos adicionales representan el llenado del pipeline. Cada stall agrega un ciclo. Cada redirección a un destino distinto de `PC + 4` vacía ID y omite IF, lo que agrega dos ciclos.
 
 Ejemplos documentados:
 
@@ -581,7 +564,7 @@ Ejemplos documentados:
 | H03 | 4 | 4 | 8 | 7 |
 | H10 | 5 | 5 | 10 | 10 |
 
-Los valores de esta tabla son los registrados en `PRUEBAS.md`; su condición de confirmación en Simics debe interpretarse según la sección 5.5.
+Los ciclos observados coincidieron con los valores esperados en los tres modos.
 
 El forwarding reduce los stalls causados por dependencias RAW. No elimina el coste de llenado ni el coste de los flushes por cambios de flujo de control. En programas sin dependencias que requieran espera, interlock y forwarding pueden tener el mismo número de ciclos.
 
@@ -593,6 +576,7 @@ Para un mismo programa y estado inicial, ambos cores deben producir:
 - El mismo PC arquitectónico final.
 - El mismo motivo de parada.
 - El mismo número de steps para las mismas instrucciones completadas.
+- Los mismos bytes en la RAM de instrucciones antes y después de ejecutar.
 
 El número de cycles puede ser diferente por la segmentación, el llenado, los stalls y los flushes.
 
@@ -650,7 +634,7 @@ El script ejecuta cada programa en sesiones nuevas de Simics en tres modos:
 2. Pipeline con interlock (`forwarding=0`).
 3. Pipeline con forwarding (`forwarding=1`).
 
-Compara registros, PC, steps, motivo de parada y cycles; también revisa trazas de stall, forwarding y flush, y los cuatro errores de carga. El resultado se guarda en `regresion-salida\resultados.md`, con las salidas individuales en la misma carpeta.
+Compara registros, PC, steps, motivo de parada y ciclos. También comprueba RAM en los casos que especifican `verify_ram_bytes`, las trazas, el cambio de forwarding y los cuatro errores de carga de cada core. El resultado se guarda en `regresion-salida\resultados.md`, con las salidas individuales en la misma carpeta.
 
 Una regresión completa satisfactoria debe terminar con el mensaje:
 
@@ -688,28 +672,12 @@ En las salidas se debe identificar:
 En la salida se debe identificar el mensaje equivalente a:
 
 ```text
-flush: salto de 00000008 a 00000014, se descartan ID e IF
+flush: redirect from 00000008 to 00000014, discard ID and IF
 ```
 
 Después, comprobar que `x2` y `x3` permanecen en cero y que la ejecución termina en el EBREAK del destino.
 
-**No insertar como captura de Simics la traza de referencia incluida en la sección 5.4.** Sustituirla por la salida real de este comando una vez ejecutado.
-
-## 7.6. Capturas recomendadas para el reporte
-
-| Figura | Evidencia | Cómo obtenerla |
-|---|---|---|
-| 1 | Diagrama del core monociclo | Dibujarlo en una herramienta de diagramación; no hay comando automático |
-| 2 | Registros y contadores del monociclo | Ejecutar `all-instructions.txt`, luego `pregs` y `ptime` |
-| 3 | Diagrama del pipeline | Insertar `docs/pipeline-arquitectura.svg` |
-| 4 | Pipeline ocupado en varias etapas | Ejecutar `01-arranque.txt` con `log_level=3` |
-| 5 | Stall por dependencia | Ejecutar H01 con `forwarding=0`, `log_level=3` |
-| 6 | Forwarding | Ejecutar H01 con `forwarding=1`, `log_level=3` |
-| 7 | Flush por branch tomado | Ejecutar H10 con `forwarding=0`, `log_level=3` |
-| 8 | Estado final del pipeline | Mostrar `pregs` y `ptime` al terminar una prueba |
-| 9 | Regresión completa | Insertar el resumen `regresion-salida/resultados.md` después de ejecutar la regresión completa |
-
-Para las capturas de la interfaz de Simics se puede utilizar `Win + Shift + S` en Windows. Las imágenes deben guardarse en `docs/evidencia/` y referenciarse desde el Markdown.
+La traza observada se incluye en la sección 5.4. Las salidas completas quedan en el directorio de la regresión.
 
 ---
 
@@ -718,8 +686,7 @@ Para las capturas de la interfaz de Simics se puede utilizar `Win + Shift + S` e
 1. **Cuatro etapas:** se implementan IF, ID, EX y WB, de acuerdo con el alcance seleccionado para el proyecto. No se incluye una etapa MEM separada.
 2. **Sin load/store de datos:** el conjunto definido en `CONVENTIONS.md` no incluye `LW`, `SW` ni otras instrucciones de acceso a memoria de datos. La RAM se utiliza para almacenar y extraer instrucciones.
 3. **Dependencias:** se cubren las dependencias RAW mediante interlock y forwarding EX/WB → EX. El control `forwarding` permite ejecutar ambos modos y comparar sus ciclos.
-4. **Control de flujo:** branch y jumps se resuelven en EX; las instrucciones jóvenes del camino incorrecto se invalidan.
-5. **Resultados de pruebas:** la evidencia real de Simics y los resultados del modelo de referencia se identifican por separado. La regresión completa debe ejecutarse antes de afirmar que todos los casos del pipeline fueron confirmados en Simics.
+4. **Control de flujo.** Los saltos se resuelven en EX. Si una lectura especulativa falla antes de que EX redirija, la infraestructura de Simics puede registrar el error inmediatamente. H13 verifica que esa lectura descartada nunca alcanza WB y que el core termina en el `ebreak` esperado.
 
 ---
 
@@ -729,7 +696,7 @@ Se desarrollaron dos modelos de procesador que comparten el mismo subconjunto de
 
 El core pipeline organiza la ejecución en cuatro etapas concurrentes y añade mecanismos para mantener la equivalencia arquitectónica con el monociclo. El interlock introduce esperas cuando una instrucción necesita un resultado que todavía se está calculando. El forwarding permite entregar ese resultado directamente a EX y eliminar esas esperas. Los branches y saltos se resuelven en EX y provocan el descarte de instrucciones del camino incorrecto cuando corresponde.
 
-Las pruebas del core monociclo documentadas en `PRUEBAS.md` cubren el subconjunto completo, casos límite de la ALU, saltos, branches, errores de carga y errores de ejecución. Para el pipeline, el repositorio incluye pruebas por etapa y programas dirigidos para dependencias, forwarding, stalls, branches, saltos, `x0`, EBREAK descartado y llenado/vaciado. La evidencia de Simics incluida confirma H01–H03 y los casos puntuales descritos en `PRUEBAS.md`; la ejecución de la regresión completa es el paso pendiente para confirmar en Simics el resto de la matriz.
+Las pruebas del core monociclo documentadas en `PRUEBAS.md` cubren el subconjunto completo, casos límite de la ALU, saltos, branches, errores de carga y errores de ejecución. Para el pipeline, el repositorio incluye pruebas por etapa y programas dirigidos para dependencias, forwarding, stalls, branches, saltos, `x0`, EBREAK descartado y llenado/vaciado. La regresión completa en Simics 7 confirmó la equivalencia arquitectónica para toda la matriz y las diferencias de ciclos esperadas entre los modos.
 
 El criterio final de corrección es que, al ejecutar el mismo programa desde el mismo estado inicial, ambos cores produzcan el mismo estado arquitectónico, aunque el número de ciclos sea diferente debido al funcionamiento del pipeline.
 
@@ -740,7 +707,7 @@ El criterio final de corrección es que, al ejecutar el mismo programa desde el 
 - `README.md` — compilación, ejecución y regresión.
 - `CONVENTIONS.md` — formato y conjunto de instrucciones.
 - `PRUEBAS.md` — plan de verificación, estados esperados, trazas y resultados.
-- `TODO.md` — decisiones de diseño y lista de tareas del pipeline.
+- `TODO.md` — estado del proyecto y mapa de implementación.
 - `modules/rv32-atomic/` — implementación del core monociclo.
 - `modules/rv32-pipeline/` — implementación del core pipeline.
 - `targets/rv32i/regresion.ps1` — automatización de la regresión.

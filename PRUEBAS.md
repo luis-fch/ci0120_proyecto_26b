@@ -22,7 +22,7 @@ ptime
 quit
 ```
 
-Las pruebas de RAM comprueban la carga y extracción de instrucciones. El subconjunto de [CONVENTIONS.md](CONVENTIONS.md) cubre el uso de RAM como memoria de instrucciones.
+Las pruebas de RAM comprueban la carga y extracción de instrucciones. La regresión compara los bytes antes y después de ejecutar `01-arranque.txt` (en `0x0` y `0x100`), todo `all-instructions.txt` y H13. Los tres modos conservaron el contenido cargado. Los resultados por modo están en la [evidencia de Simics](docs/evidencia/regresion-simics7.md).
 
 ### Programas que terminan en EBREAK
 
@@ -106,11 +106,11 @@ Con N instrucciones sin riesgos el programa tarda N + 3 ciclos (el llenado). En 
 cycles = steps + 3 + stalls + 2 × flushes        (+1 si el programa termina en un fallo)
 ```
 
-Los stalls solo existen con interlock. Cada flush (branch tomado, JAL o JALR) cuesta 2 ciclos porque EX descarta lo que había en ID y lo que IF iba a leer. El +1 de los fallos es la instrucción defectuosa, que ocupa WB un ciclo sin contar como step.
+Los stalls solo existen con interlock. Cada redirección a un PC distinto de `PC + 4` cuesta 2 ciclos porque EX descarta lo que había en ID y lo que IF iba a leer. El +1 de los fallos es la instrucción defectuosa, que ocupa WB un ciclo sin contar como step.
 
 ### Cómo ejecutar
 
-La regresión completa corre cada programa en una sesión nueva en tres modos (monociclo, pipeline con interlock y pipeline con forwarding), compara el estado contra el monociclo y los ciclos contra [regresion-esperado.csv](targets/rv32i/regresion-esperado.csv), revisa las trazas de riesgos y comprueba los cuatro errores de carga. Desde la raíz del proyecto, después de compilar ambos módulos:
+La regresión completa corre cada programa en una sesión nueva en tres modos (monociclo, pipeline con interlock y pipeline con forwarding), compara el estado contra el monociclo y los ciclos contra [regresion-esperado.csv](targets/rv32i/regresion-esperado.csv), revisa las trazas de riesgos y comprueba los cuatro errores de carga en ambos cores. Desde la raíz del proyecto, después de compilar ambos módulos:
 
 ```powershell
 .\bin\make.bat rv32-atomic
@@ -126,9 +126,9 @@ Para una sola corrida, [regresion.simics](targets/rv32i/regresion.simics) hace `
 .\simics.bat targets\rv32i\regresion.simics core_kind=pipeline forwarding=1 program=targets/rv32i/programs/pipeline/h01-raw-addi.txt
 ```
 
-Los parámetros son `core_kind` (`atomic` o `pipeline`), `forwarding` (0 o 1), `log_level` (3 imprime la traza por ciclo), `max_cycles`, y los de `rv32.simics` (`program`, `load_address`, `ram_size`). Para el caso 08 de las pruebas negativas, `inject_addr=0x4 inject_word=0x02101113` hace la inyección de memoria. Para el 09, `ram_size=0x10`.
+Los parámetros son `core_kind` (`atomic` o `pipeline`), `forwarding` (0 o 1), `log_level` (3 imprime la traza por ciclo), `max_cycles`, y los de `rv32.simics` (`program`, `load_address`, `ram_size`). Para el caso 08 de las pruebas negativas, `inject_addr=0x4 inject_word=0x02101113` hace la inyección de memoria. Para el 09, `ram_size=0x10`. Con `switch_at_cycle=3`, el pipeline cambia al otro modo de forwarding tras tres ciclos. `verify_ram_bytes` toma ese número de bytes desde `load_address` antes y después del programa.
 
-En una sesión interactiva el interruptor se fija antes de ejecutar y no aparece en `pregs`:
+Para medir un modo desde el inicio, fija `forwarding` antes de ejecutar. Si lo cambias mientras Simics está en pausa, el pipeline descarta las instrucciones que aún no se han confirmado y vuelve a extraer desde el PC arquitectónico. Los registros y contadores ya confirmados se conservan. El atributo no aparece en `pregs`:
 
 ```text
 log-level 3
@@ -154,6 +154,7 @@ Cada programa H trae en su primera línea el estado esperado. Los stalls son los
 | [H10](targets/rv32i/programs/pipeline/h10-branch-tomado.txt) | BNE tomado con dos instrucciones del camino equivocado en vuelo. Es la traza de flush del reporte. | `x1=1`, `x2=0`, `x3=0`, `x4=4`, `x9=9`, PC `0x18`. 5 steps. | 0 · 1 | 10 / 10 |
 | [H11](targets/rv32i/programs/pipeline/h11-ebreak-descartado.txt) | Un `ebreak` en el camino descartado (`0x0c`) no detiene el programa. | `x1=1`, `x2=0`, `x3=3`, `x4=4`, PC `0x18`. 5 steps. | 0 · 1 | 10 / 10 |
 | [H12](targets/rv32i/programs/pipeline/h12-branch-no-tomado.txt) | BEQ con RAW que no se toma: no hay flush y se ejecutan las dos siguientes. | `x1=1`, `x2=2`, `x3=3`, `x4=4`, PC `0x14`. 6 steps. | 1 · 0 | 10 / 9 |
+| [H13](targets/rv32i/programs/pipeline/h13-fetch-descartado.txt) | Un salto desde la última palabra de RAM descarta un fallo de extracción especulativa. | RAM de 12 bytes intacta, registros en cero, PC `0x04`. 3 steps. | 0 · 2 | 10 / 10 |
 | [P01](targets/rv32i/programs/pipeline/p01-independientes.txt) | Línea recta de 25 instrucciones sin dependencias de distancia 1. Incluye un ADDI sobre `x0`. | Ver abajo. PC `0x60`. 25 steps. | 0 · 0 | 28 / 28 |
 
 Estado final de P01 (los registros que no se listan quedan en cero, entre ellos `x0`, `x8` y `x16`):
@@ -201,6 +202,7 @@ Una corrida por programa, desde una sesión nueva. Los steps son iguales en los 
 | [H10](targets/rv32i/programs/pipeline/h10-branch-tomado.txt) | 5 | 5 | 10 | 10 | 0 | 1 |
 | [H11](targets/rv32i/programs/pipeline/h11-ebreak-descartado.txt) | 5 | 5 | 10 | 10 | 0 | 1 |
 | [H12](targets/rv32i/programs/pipeline/h12-branch-no-tomado.txt) | 6 | 6 | 10 | 9 | 1 | 0 |
+| [H13](targets/rv32i/programs/pipeline/h13-fetch-descartado.txt) | 3 | 3 | 10 | 10 | 0 | 2 |
 | [P01](targets/rv32i/programs/pipeline/p01-independientes.txt) | 25 | 25 | 28 | 28 | 0 | 0 |
 
 El forwarding elimina todos los stalls (`all-instructions` baja de 2 a 0), pero los ciclos que más pesan siguen siendo el llenado del pipeline y los flushes de los saltos (8 en `all-instructions`). En los programas de línea recta sin dependencias (`01`, `P01`) el interlock y el forwarding empatan. Donde hay cadenas de dependencias (`H02`, `H04`, `03`) el forwarding recupera un ciclo por cada stall.
@@ -212,18 +214,18 @@ Con `log-level 3` cada ciclo imprime qué instrucción ocupa IF, ID, EX y WB, y 
 | Etapa | Qué se comprueba | Caso | Qué debe verse |
 | --- | --- | --- | --- |
 | IF | Palabra y PC leídos. | [01 · Arranque](targets/rv32i/programs/atomic/01-arranque.txt). `x 0x0 8` antes de correr, traza al correr. | `x 0x0 8` muestra `9300 5000 7300 1000`. En el segundo ciclo, `IF: 00000004 ID: 00000000 addi x1, x0, 5`: la palabra de `0x0` llegó a ID y IF avanzó 4. |
-| IF | Fallo de lectura (fuera de RAM). | [Neg. 09](targets/rv32i/programs/atomic/negativas/09-fuera-de-ram.txt) con `ram_size=0x10`. | `FETCH-FAIL` viaja por ID, EX y WB con `IF: (detenida)`. Para en WB con `instruction fetch failed` y PC `0x10`. |
+| IF | Fallo de lectura (fuera de RAM). | [Neg. 09](targets/rv32i/programs/atomic/negativas/09-fuera-de-ram.txt) con `ram_size=0x10`. | `FETCH-FAIL` viaja por ID, EX y WB con `IF: (stopped)`. Para en WB con `instruction fetch failed` y PC `0x10`. |
 | ID | Campos e inmediatos decodificados (incluidos los negativos). | [03 · Bucle](targets/rv32i/programs/atomic/03-bucle.txt) y [H10](targets/rv32i/programs/pipeline/h10-branch-tomado.txt). | En ID aparecen `addi x1, x1, -1`, `bne x1, x0, -4` y `bne x1, x0, 12` con sus registros e inmediatos. |
-| ID | Palabra ilegal y lectura de operandos con espera. | [Neg. 08](targets/rv32i/programs/atomic/negativas/08-palabra-ilegal.txt) con la inyección. [H01](targets/rv32i/programs/pipeline/h01-raw-addi.txt) con interlock. | `ID: 00000004 .word 0x02101113` y luego `illegal or unsupported instruction 0x02101113 at 0x00000004`. En H01, `stall: 00000004 addi espera un registro que EX esta calculando`. |
+| ID | Palabra ilegal y lectura de operandos con espera. | [Neg. 08](targets/rv32i/programs/atomic/negativas/08-palabra-ilegal.txt) con la inyección. [H01](targets/rv32i/programs/pipeline/h01-raw-addi.txt) con interlock. | `ID: 00000004 .word 0x02101113` y luego `illegal or unsupported instruction 0x02101113 at 0x00000004`. En H01, `stall: 00000004 addi waits for an operand from EX`. |
 | EX | Resultado y operando correctos. | [02 · Límites de la ALU](targets/rv32i/programs/atomic/02-alu-limites.txt). [H01](targets/rv32i/programs/pipeline/h01-raw-addi.txt) con forwarding. | Los registros finales coinciden con el core atómico. Con forwarding, `forward: 00000004 x1 <- 0000000a (EX/WB)`. |
-| EX | Destino de saltos y alineación. | [H10](targets/rv32i/programs/pipeline/h10-branch-tomado.txt), [H07](targets/rv32i/programs/pipeline/h07-jalr-dependiente.txt), [Neg. 05](targets/rv32i/programs/atomic/negativas/05-branch-desalineado.txt). | `flush: salto de 00000008 a 00000014` (H10) y `flush: salto de 00000004 a 00000010` (H07). En el 05, `unaligned instruction fetch` con PC `0x04`. |
+| EX | Destino de saltos y alineación. | [H10](targets/rv32i/programs/pipeline/h10-branch-tomado.txt), [H07](targets/rv32i/programs/pipeline/h07-jalr-dependiente.txt), [Neg. 05](targets/rv32i/programs/atomic/negativas/05-branch-desalineado.txt). | `flush: redirect from 00000008 to 00000014` (H10) y `flush: redirect from 00000004 to 00000010` (H07). En el 05, `unaligned instruction fetch` con PC `0x04`. |
 | WB | Escritura del banco, `x0` y steps. | [P01](targets/rv32i/programs/pipeline/p01-independientes.txt) y [H09](targets/rv32i/programs/pipeline/h09-x0-sin-dependencia.txt). [H11](targets/rv32i/programs/pipeline/h11-ebreak-descartado.txt). | `x0=0` aunque el programa haga `addi x0, x1, 5` o `addi x0, x0, 5`. `ptime` muestra 25 steps en P01. En H11, el `ebreak` de `0x0c` no para el programa: para el de `0x18` con 5 steps. |
 
-`regresion.ps1` comprueba automáticamente las líneas de traza de H01, H05, H09, H10, H11, H12, 01, Neg. 08 y Neg. 09, además de los registros y contadores de todos los programas.
+`regresion.ps1` comprueba automáticamente las líneas de traza de H01, H05, H09, H10, H11, H12, 01, Neg. 08 y Neg. 09, además de los registros y contadores de todos los programas. También comprueba las trazas de los casos de fin de RAM y de PC inicial desalineado.
 
 ### Llenado, vaciado y PC inicial distinto de cero
 
-**Llenado y vaciado.** [01 · Arranque](targets/rv32i/programs/atomic/01-arranque.txt) tiene 2 instrucciones y tarda **5 ciclos**: 2 de instrucciones más 3 de llenado. La traza muestra primero una sola etapa ocupada, luego dos, tres y cuatro a la vez. Al llegar el `ebreak` a WB el pipeline se vacía y el PC queda en `0x04`.
+**Llenado y vaciado.** [01 · Arranque](targets/rv32i/programs/atomic/01-arranque.txt) tiene 2 instrucciones y tarda **5 ciclos**: 2 de instrucciones más 3 de llenado. La traza muestra cómo se llenan las etapas y cómo IF deja de leer cuando ID reconoce el `ebreak`. Cuando este llega a WB, el pipeline se vacía y el PC queda en `0x04`. H10 muestra las cuatro etapas activas a la vez.
 
 **PC inicial.** Para comprobar que IF extrae desde `load_address` y que `rv32_set_pc()` reinicia el pipeline desde ahí, se agrega `load_address=0x100` al comando de arranque. Los programas elegidos solo usan saltos relativos, así que el estado final es el mismo salvo los enlaces de JAL y JALR, que guardan direcciones desplazadas `0x100`. Los ciclos no cambian:
 
@@ -238,7 +240,7 @@ Con `log-level 3` cada ciclo imprime qué instrucción ocupa IF, ID, EX y WB, y 
 .\simics.bat targets\rv32i\rv32-pipeline.simics program=targets/rv32i/programs/atomic/01-arranque.txt load_address=0x100
 ```
 
-### Trazas de referencia
+### Trazas observadas en Simics
 
 Espera por dependencia (H01, interlock). El `stall:` aparece en el ciclo en que `addi x2, x1, 5` está en ID y `addi x1, x0, 10` en EX; al ciclo siguiente entra una burbuja a EX y la instrucción dependiente se repite en ID. 3 steps, 7 cycles.
 
@@ -246,11 +248,11 @@ Espera por dependencia (H01, interlock). El `stall:` aparece en el ciclo en que 
 [core0 info]  IF: 00000000 ID: ---------------- EX: ---------------- WB: ----------------
 [core0 info]  IF: 00000004 ID: 00000000 addi x1, x0, 10 EX: ---------------- WB: ----------------
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: 00000000 addi x1, x0, 10 WB: ----------------
-[core0 info] stall: 00000004 addi espera un registro que EX esta calculando
+[core0 info] stall: 00000004 addi waits for an operand from EX
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: ---------------- WB: 00000000 addi x1, x0, 10
 [core0 info]  IF: 0000000c ID: 00000008 ebreak EX: 00000004 addi x2, x1, 5 WB: ----------------
-[core0 info]  IF: 00000010 ID: 0000000c .word 0x00000000 EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
-[core0 info]  IF: 00000014 ID: 00000010 .word 0x00000000 EX: 0000000c .word 0x00000000 WB: 00000008 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000008 ebreak
 [core0 info] halted at pc 0x00000008: ebreak
 ```
 
@@ -262,8 +264,8 @@ Forwarding (H01, `core0->forwarding = 1`). No hay `stall:`; `addi x2, x1, 5` tom
 [core0 info]  IF: 00000008 ID: 00000004 addi x2, x1, 5 EX: 00000000 addi x1, x0, 10 WB: ----------------
 [core0 info]  IF: 0000000c ID: 00000008 ebreak EX: 00000004 addi x2, x1, 5 WB: 00000000 addi x1, x0, 10
 [core0 info] forward: 00000004 x1 <- 0000000a (EX/WB)
-[core0 info]  IF: 00000010 ID: 0000000c .word 0x00000000 EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
-[core0 info]  IF: 00000014 ID: 00000010 .word 0x00000000 EX: 0000000c .word 0x00000000 WB: 00000008 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000008 ebreak WB: 00000004 addi x2, x1, 5
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000008 ebreak
 [core0 info] halted at pc 0x00000008: ebreak
 ```
 
@@ -271,18 +273,18 @@ Flush (H10). El `bne` de `0x08` está en EX con `addi x2, x0, 99` (`0x0c`) en ID
 
 ```text
 [core0 info]  IF: 00000010 ID: 0000000c addi x2, x0, 99 EX: 00000008 bne x1, x0, 12 WB: 00000004 addi x9, x0, 9
-[core0 info] flush: salto de 00000008 a 00000014, se descartan ID e IF
+[core0 info] flush: redirect from 00000008 to 00000014, discard ID and IF
 [core0 info]  IF: 00000014 ID: ---------------- EX: ---------------- WB: 00000008 bne x1, x0, 12
 [core0 info]  IF: 00000018 ID: 00000014 addi x4, x0, 4 EX: ---------------- WB: ----------------
 [core0 info]  IF: 0000001c ID: 00000018 ebreak EX: 00000014 addi x4, x0, 4 WB: ----------------
-[core0 info]  IF: 00000020 ID: 0000001c .word 0x00000000 EX: 00000018 ebreak WB: 00000014 addi x4, x0, 4
-[core0 info]  IF: 00000024 ID: 00000020 .word 0x00000000 EX: 0000001c .word 0x00000000 WB: 00000018 ebreak
+[core0 info]  IF: (stopped) ID: ---------------- EX: 00000018 ebreak WB: 00000014 addi x4, x0, 4
+[core0 info]  IF: (stopped) ID: ---------------- EX: ---------------- WB: 00000018 ebreak
 [core0 info] halted at pc 0x00000018: ebreak
 ```
 
 ### Decisión: cuatro etapas, sin MEM
 
-El enunciado pide cuatro etapas y la diapositiva 3 de [Presentacion-rv32i.pdf](Presentacion-rv32i.pdf) menciona cinco. Se implementaron cuatro: **extracción (IF), decodificación y lectura de registros (ID), ejecución (EX) y escritura (WB)**. No hay etapa de memoria porque el subconjunto de [CONVENTIONS.md](CONVENTIONS.md) no tiene `lw` ni `sw`: ninguna instrucción accede a memoria de datos. Una etapa MEM solo pasaría el resultado sin hacer nada, y costaría un ciclo más de latencia por programa (N + 4 en vez de N + 3) y otro registro intermedio, sin cambiar ninguna dependencia de datos ni la penalización de los saltos, que se resuelven en EX.
+El diseño sigue las cuatro etapas del enunciado escrito: **extracción (IF), decodificación y lectura de registros (ID), ejecución (EX) y escritura (WB)**. IF usa la RAM para extraer instrucciones. El subconjunto de [CONVENTIONS.md](CONVENTIONS.md) carece de operaciones sobre memoria de datos, por lo que el pipeline no necesita una etapa MEM.
 
 Con cuatro etapas hay dos distancias de dependencia que cubrir, no una:
 
@@ -292,17 +294,24 @@ Con cuatro etapas hay dos distancias de dependencia que cubrir, no una:
 | 2 | En WB | Ninguna: WB escribe el banco antes de que ID lea en el mismo ciclo |
 | 3 o más | Ya escribió | Ninguna |
 
-Si la entrega exigiera cinco etapas, habría que agregar una etapa MEM que solo reenvía el resultado y un registro MEM/WB, y el forwarding tendría que cubrir también esa etapa.
+### Casos de la revisión
+
+| Entrada | Estado esperado | Observado en Simics 7 | Resultado |
+| --- | --- | --- | --- |
+| `01-arranque.txt` con `ram_size=8`: `ebreak` en la última palabra de RAM | `x1=5`, PC `0x04`, 2 steps; 2/5/5 cycles (monociclo/interlock/forwarding). Sin error de lectura. | Coinciden registros, PC, steps y cycles; la traza del pipeline no contiene `FETCH-FAIL` ni `fetch error`. | OK |
+| `01-arranque.txt` con `load_address=2 inject_addr=2 inject_word=0x00100073` | PC `0x02`, registros en cero, 0 steps y 1/4/4 cycles. Parada `unaligned instruction fetch` aunque la palabra sea un `ebreak` válido. | Los tres modos conservan el estado y reportan la parada esperada. En el pipeline, la traza lleva `MISALIGNED` hasta WB. | OK |
+| H01 con `forwarding=1 switch_at_cycle=3` | `x1=10`, `x2=15`, PC `0x08`, 3 steps y 10 cycles: tres iniciales y siete al reiniciar con interlock. | `x1=10`, `x2=15`, PC `0x08`, 3 steps y 10 cycles; parada por `ebreak`. | OK |
+
+En H13, Simics registró `fetch error from physical address 0xc` antes de
+resolver el salto de `0x08`. La redirección eliminó el fallo antes de WB.
+Los tres modos terminaron en `ebreak` con 3 steps, PC `0x04` y la misma RAM.
+La traza exige que el fallo aparezca en ID y comprueba que no llegue a WB.
 
 ### Resultados observados
 
-**Confirmado en Simics 7** durante el desarrollo, con sesiones nuevas:
-
-- Carga y PC: `x 0x0 8` muestra `9300 5000 7300 1000`, `disassemble 0x0 2` muestra las dos palabras, `run 3 cycles` termina sin colgarse y `set_program_counter(0x10)` deja `pc = 0x10`.
-- 01 · Arranque con `log-level 3`: cuatro etapas ocupadas a la vez, `ebreak` detiene en WB al ciclo 5 con `halted at pc 0x00000004: ebreak`.
-- H01 con interlock: `x1=0xa`, `x2=0xf`, PC `0x08`, **3 steps, 7 cycles**, con la línea `stall:` y la burbuja en EX.
-- H01 con forwarding: sin `stall:`, con `forward: 00000004 x1 <- 0000000a (EX/WB)`, mismo estado, **3 steps, 6 cycles**.
-
-**Obtenido con un modelo de referencia, pendiente de confirmar en Simics:** el resto de las tablas de esta sección (H02 a H12, P01, los programas del core atómico en el pipeline, `load_address=0x100` y las trazas de flush). Salen de compilar los mismos `rv32-pipeline.c` y `rv32-atomic.c` contra un Simics simulado en C, que reproduce exactamente las trazas y contadores confirmados arriba. En las 23 corridas el pipeline coincide con el core atómico en registros, PC, steps y motivo de parada, con y sin forwarding, y los ciclos cumplen `cycles = steps + 3 + stalls + 2 × flushes` (más 1 si el programa termina en un fallo).
-
-Para cerrar la confirmación basta correr `.\targets\rv32i\regresion.ps1` en Simics y conservar `regresion-salida\resultados.md`; cualquier diferencia contra las tablas de arriba aparece como `FALLA` con el valor observado.
+La [regresión completa en Simics 7](docs/evidencia/regresion-simics7.md)
+confirmó las 30 entradas de la matriz en los tres modos, incluidas las cuatro
+entradas con `load_address=0x100`. También pasaron 13 verificaciones de
+traza, el cambio de forwarding y los cuatro rechazos de carga en ambos cores.
+Las tablas anteriores indican los valores esperados; el resumen de la
+ejecución recoge los contadores observados y el resultado de compararlos.

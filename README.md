@@ -13,6 +13,11 @@
 
 # RV32I cores
 
+This project implements an atomic core and a four-stage pipeline (IF, ID, EX,
+WB) for the same RV32I subset. The atomic core is the reference for architectural
+state. See the [design report](docs/reporte_final_rv32i.md) for stage behavior
+and [PRUEBAS.md](PRUEBAS.md) for the expected and observed results.
+
 ## Files that you will be using
 
 `modules/rv32-atomic/` (atomic core):
@@ -75,27 +80,34 @@ On Linux, use `./simics` and `/` instead of `simics.bat` and `\`.
 is loaded. Then, at the `simics>` prompt:
 
 ```
-run
+run 100 cycles
 pregs
+ptime
 quit
 ```
 
-`run` runs the program until its `ebreak`.
+The cycle limit keeps debugging sessions bounded; a program can stop sooner at
+`ebreak` or on a fault. `pregs` shows the registers and architectural PC; `ptime`
+shows steps and cycles. Wait for the run to stop before inspecting either.
 
-`pregs` shows the registers.
+The pipeline uses the RAW interlock by default. Set `core0->forwarding = 1`
+to enable forwarding, and use `log-level 3` to inspect the stages. Changing the
+mode in a paused session discards unretired instructions and restarts fetch at
+the architectural PC.
 
 ## Regression
 
 `targets/rv32i/regresion.ps1` runs every program of `regresion-esperado.csv`
 on the atomic core, the pipeline with interlock and the pipeline with
 forwarding, one Simics session each, and compares registers, PC, steps, stop
-reason and cycles. It also checks the stall, forwarding and flush traces and
-the four load errors. Run it from the project directory after building both
-modules:
+reason and cycles. It also checks instruction RAM in selected cases, stage
+traces, changing forwarding mid-run, and the four load errors on both cores.
+Run it from the project directory after building both modules:
 
 ```
 .\targets\rv32i\regresion.ps1
 ```
 
-A single run is `targets\rv32i\regresion.simics`. Both are described in
-[PRUEBAS.md](PRUEBAS.md#pipeline).
+For one case, use `targets\rv32i\regresion.simics`. The regression saves the
+summary and session logs in `regresion-salida\`. See [PRUEBAS.md](PRUEBAS.md#pipeline)
+for parameters and examples.
