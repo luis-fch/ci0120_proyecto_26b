@@ -260,9 +260,14 @@ static bool branch_taken(uint32 funct3, uint32 a, uint32 b)
  *  Unica excepcion deliberada: WB escribe el banco de registros ANTES de que
  *  ID lo lea en el mismo ciclo (escribe y luego lee).
  *
- *  Paso 2: sin stalls, sin forwarding y sin flush de saltos. Solo se pueden
- *  probar programas en linea recta cuyas dependencias esten separadas por
- *  al menos una instruccion.
+ *  Riesgos de datos (interlock, sin forwarding): si la instruccion en ID
+ *  lee un registro que la instruccion en EX va a escribir, se detiene en ID
+ *  un ciclo: ID/EX recibe una burbuja y IF no avanza. Si el productor ya
+ *  esta en WB no hace falta esperar, porque WB escribe antes de que ID lea.
+ *
+ *  Riesgos de control (saltos resueltos en EX): si EX cambia el flujo se
+ *  redirige fetch_pc y se descartan la instruccion que estaba en ID y la que
+ *  IF iba a leer (2 ciclos de penalizacion).
  * ====================================================================== */
 
 /* Vacia el pipeline y reinicia la extraccion en el PC arquitectonico. */
@@ -299,25 +304,33 @@ static void stage_if(rv32_t *cpu, if_id_t *out, uint32 *fetch_pc,
   }
 }
 
-/* ID: decodifica y lee los operandos del banco de registros. */
-static void stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
+/* True si "ex" va a escribir el registro fuente r (r = 0 nunca depende). */
+static bool raw_hazard(const id_ex_t *ex, uint32 r)
+{
+  return ex->valid && ex->fault == FAULT_NONE && ex->writes_rd && r != 0 &&
+         ex->rd == r;
+}
+
+/* ID: decodifica y lee los operandos del banco de registros. Devuelve true
+   si la instruccion debe esperar en ID (en ese caso out es una burbuja). */
+static bool stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
 {
   memset(out, 0, sizeof *out);
   if (!in->valid)
-    return;
+    return false;
 
   out->valid = true;
   out->pc = in->pc;
   out->word = in->word;
   out->fault = in->fault;
   if (in->fault != FAULT_NONE)
-    return;
+    return false;
 
   instruction_t d = decode(in->word);
   if (d.name == NULL)
   {
     out->fault = FAULT_ILLEGAL;
-    return;
+    return false;
   }
 
   out->opcode = d.opcode;
@@ -346,10 +359,23 @@ static void stage_id(rv32_t *cpu, const if_id_t *in, id_ex_t *out)
   }
   out->writes_rd = (d.opcode != 0x63u && d.opcode != 0x73u && d.rd != 0);
 
+  /* Interlock: esperar si el operando lo esta calculando la instruccion
+     que esta en EX. */
+  if ((out->uses_rs1 && raw_hazard(&cpu->id_ex, d.rs1)) ||
+      (out->uses_rs2 && raw_hazard(&cpu->id_ex, d.rs2)))
+  {
+    SIM_LOG_INFO(3, cpu->obj, 0,
+                 "stall: %08x %s espera un registro que EX esta calculando",
+                 in->pc, d.name);
+    memset(out, 0, sizeof *out); /* burbuja hacia EX */
+    return true;
+  }
+
   if (out->uses_rs1)
     out->val1 = reg_read_x(cpu, d.rs1);
   if (out->uses_rs2)
     out->val2 = reg_read_x(cpu, d.rs2);
+  return false;
 }
 
 /* EX: calcula resultado, destino y valida la alineacion. No escribe en el
@@ -520,8 +546,33 @@ void execute(rv32_t *cpu)
   bool next_fetch_stopped = cpu->fetch_stopped;
 
   stage_ex(&cpu->id_ex, &next_wb);
-  stage_id(cpu, &cpu->if_id, &next_ex);
-  stage_if(cpu, &next_id, &next_fetch_pc, &next_fetch_stopped);
+
+  /* EX cambia el flujo si una instruccion valida y sin fallo deja un
+     siguiente PC distinto de pc + 4 (branch tomado, JAL, JALR). */
+  bool redirect = next_wb.valid && next_wb.fault == FAULT_NONE &&
+                  !next_wb.is_ebreak && next_wb.next_pc != next_wb.pc + 4u;
+
+  if (redirect)
+  {
+    /* Flush: lo que hay en ID y lo que IF iba a leer es del camino
+       equivocado. */
+    SIM_LOG_INFO(3, cpu->obj, 0,
+                 "flush: salto de %08x a %08x, se descartan ID e IF",
+                 next_wb.pc, next_wb.next_pc);
+    memset(&next_ex, 0, sizeof next_ex);
+    memset(&next_id, 0, sizeof next_id);
+    next_fetch_pc = next_wb.next_pc;
+    next_fetch_stopped = false;
+  }
+  else if (stage_id(cpu, &cpu->if_id, &next_ex))
+  {
+    /* Stall: la instruccion se queda en ID y IF no avanza. */
+    next_id = cpu->if_id;
+  }
+  else
+  {
+    stage_if(cpu, &next_id, &next_fetch_pc, &next_fetch_stopped);
+  }
 
   /* --- Se aplican todos a la vez --- */
   cpu->ex_wb = next_wb;

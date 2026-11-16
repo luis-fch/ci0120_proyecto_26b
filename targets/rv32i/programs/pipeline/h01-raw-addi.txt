@@ -1,0 +1,4 @@
+# H01: RAW entre dos ADDI consecutivos. x1=10 x2=15
+addi x1, x0, 10
+addi x2, x1, 5
+ebreak
